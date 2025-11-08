@@ -1,0 +1,13 @@
+{
+  "request": {
+    "urlPath": "/io.pipeline.opensearch.v1.OpenSearchManager/IndexDocument",
+    "method": "POST"
+  },
+  "response": {
+    "status": 200,
+    "body": "{ \"success\": true, \"message\": \"Document indexed successfully\" }",
+    "headers": {
+      "grpc-status-name": "OK"
+    }
+  }
+}

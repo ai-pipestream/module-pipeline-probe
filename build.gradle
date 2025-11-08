@@ -1,0 +1,165 @@
+plugins {
+    alias(libs.plugins.java)
+    alias(libs.plugins.quarkus)
+    alias(libs.plugins.maven.publish)
+}
+
+// Build profile: default internal (rokkon), switch to external with GRADLE_BUILD_PROFILE=external
+def isExternalBuild = System.getenv('GRADLE_BUILD_PROFILE') == 'external'
+
+repositories {
+    mavenLocal()
+
+    // Always include Rokkon repos (internal)
+    maven {
+        name = "Reposilite"
+        url = uri("https://maven.rokkon.com/snapshots")
+        credentials {
+            username = project.findProperty("reposilite.user") ?: System.getenv("REPOS_USER") ?: "admin"
+            password = project.findProperty("reposilite.token") ?: System.getenv("REPOS_PAT")
+        }
+    }
+    maven {
+        name = "Gitea"
+        url = uri("https://git.rokkon.com/api/packages/io-pipeline/maven")
+        credentials {
+            username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
+            password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
+        }
+    }
+
+    if (isExternalBuild) {
+        // External: Add GitHub Packages for public access
+        maven {
+            name = "GitHub Packages"
+            url = uri("https://maven.pkg.github.com/io-pipeline/*")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: "io-pipeline"
+                password = System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+
+    // Fallback to public repos
+    mavenCentral()
+    maven { url 'https://repo.spring.io/release' }
+}
+
+dependencies {
+    testImplementation libs.quarkus.wiremock.test
+    implementation libs.quarkus.wiremock
+    implementation platform('io.pipeline:pipeline-bom:1.0.0-SNAPSHOT')
+    implementation 'io.quarkus:quarkus-grpc'
+    implementation 'io.quarkus:quarkus-arc'
+
+    // Core Quarkus dependencies
+    implementation 'io.quarkus:quarkus-rest'
+    implementation 'io.quarkus:quarkus-rest-jackson'
+    implementation 'io.quarkus:quarkus-smallrye-health'
+    implementation 'io.quarkus:quarkus-smallrye-openapi'
+
+    // Service Discovery dependencies for Consul
+    implementation 'io.quarkus:quarkus-smallrye-stork'
+    implementation 'io.smallrye.stork:stork-service-discovery-consul'
+    implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
+
+    // Micrometer metrics
+    implementation 'io.quarkus:quarkus-micrometer'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.grpc:grpc-services'
+
+    testImplementation 'io.quarkus:quarkus-junit5'
+    testImplementation 'io.rest-assured:rest-assured'
+    testImplementation 'io.pipeline:grpc-wiremock:1.0.0-SNAPSHOT'
+
+    implementation 'io.pipeline:grpc-stubs:1.0.0-SNAPSHOT'
+    implementation 'io.pipeline:pipeline-commons'
+    implementation 'io.pipeline:pipeline-api'
+    // implementation 'io.pipeline:data-util'  // Temporarily disabled - artifact not available
+    implementation 'io.pipeline:dynamic-grpc'
+    implementation 'io.pipeline:dynamic-grpc-registration-clients'
+    implementation 'io.pipeline:quarkus-pipeline-devservices:1.0.0-SNAPSHOT'
+}
+
+group 'io.pipeline.module'
+version '1.0.0-SNAPSHOT'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+test {
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+}
+compileJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-parameters'
+}
+
+compileTestJava {
+    options.encoding = 'UTF-8'
+}
+
+// Publishing configuration
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+            artifactId = 'module-pipeline-probe'
+            pom {
+                name = 'Module Pipeline Probe'
+                description = 'Live testing and observation service for pipeline data streams'
+                url = 'https://github.com/io-pipeline/module-pipeline-probe'
+
+                licenses {
+                    license {
+                        name = 'Apache License 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0'
+                    }
+                }
+
+                developers {
+                    developer {
+                        id = 'krickert'
+                        email = 'krickert@rokkon.com'
+                        name = 'Pipeline Engine Team'
+                    }
+                }
+
+                scm {
+                    connection = 'scm:git:ssh://git@git.rokkon.com:2222/io-pipeline/module-pipeline-probe.git'
+                    developerConnection = 'scm:git:ssh://git@git.rokkon.com:2222/io-pipeline/module-pipeline-probe.git'
+                    url = 'https://git.rokkon.com/io-pipeline/module-pipeline-probe'
+                }
+            }
+        }
+    }
+
+    repositories {
+        // Publish to Maven Local for development
+        mavenLocal()
+
+        // Publish to Reposilite (primary artifact repository)
+        maven {
+            name = "Reposilite"
+            url = uri(version.toString().endsWith('-SNAPSHOT')
+                ? "https://maven.rokkon.com/snapshots"
+                : "https://maven.rokkon.com/releases")
+            credentials {
+                username = project.findProperty("reposilite.user") ?: System.getenv("REPOS_USER") ?: "admin"
+                password = project.findProperty("reposilite.token") ?: System.getenv("REPOS_PAT")
+            }
+        }
+
+        // Publish to Gitea Maven registry (backup)
+        maven {
+            name = "Gitea"
+            url = uri("https://git.rokkon.com/api/packages/io-pipeline/maven")
+            credentials {
+                username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
+                password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
+            }
+        }
+    }
+}
