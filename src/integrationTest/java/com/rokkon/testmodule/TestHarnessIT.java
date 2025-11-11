@@ -1,11 +1,11 @@
 package com.rokkon.testmodule;
 
+import ai.pipestream.data.util.proto.ProtobufTestDataHelper;
+import ai.pipestream.module.pipelineprobe.TestHarnessTestBase;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import io.pipeline.data.util.proto.ProtobufTestDataHelper;
-import io.pipeline.module.testharness.TestHarnessTestBase;
-import io.pipeline.testing.harness.grpc.TestHarness;
-import io.pipeline.testing.harness.grpc.TestHarnessClient;
+import ai.pipestream.testing.harness.grpc.TestHarness;
+import ai.pipestream.testing.harness.grpc.TestHarnessClient;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 import org.junit.jupiter.api.AfterEach;

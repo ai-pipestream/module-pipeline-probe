@@ -1,8 +1,8 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
 import com.google.protobuf.Empty;
 import com.google.protobuf.util.JsonFormat;
-import io.pipeline.testing.harness.grpc.ModuleStatus;
+import ai.pipestream.testing.harness.grpc.ModuleStatus;
 import io.quarkus.grpc.GrpcService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;

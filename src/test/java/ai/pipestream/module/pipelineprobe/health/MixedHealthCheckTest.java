@@ -1,4 +1,4 @@
-package io.pipeline.module.testharness.health;
+package ai.pipestream.module.pipelineprobe.health;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;

@@ -1,11 +1,11 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
 import com.google.protobuf.Empty;
-import io.pipeline.data.v1.PipeDoc;
-import io.pipeline.data.v1.SearchMetadata;
-import io.pipeline.data.module.ModuleProcessRequest;
-import io.pipeline.data.module.ServiceMetadata;
-import io.pipeline.testing.harness.grpc.*;
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.v1.SearchMetadata;
+import ai.pipestream.data.module.ModuleProcessRequest;
+import ai.pipestream.data.module.ServiceMetadata;
+import ai.pipestream.testing.harness.grpc.*;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.junit.QuarkusTest;
 import io.smallrye.mutiny.Multi;

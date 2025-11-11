@@ -1,6 +1,6 @@
 {
   "request": {
-    "urlPath": "/io.pipeline.opensearch.v1.OpenSearchManager/IndexDocument",
+    "urlPath": "/ai.pipestream.opensearch.v1.OpenSearchManager/IndexDocument",
     "method": "POST"
   },
   "response": {

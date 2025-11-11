@@ -1,4 +1,4 @@
-package io.pipeline.module.testharness.health;
+package ai.pipestream.module.pipelineprobe.health;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.RestAssured;

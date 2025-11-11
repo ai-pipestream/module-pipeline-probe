@@ -3,7 +3,7 @@ package com.rokkon.testmodule.health;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.health.v1.HealthGrpc;
-import io.pipeline.module.testharness.health.GrpcHealthCheckTestBase;
+import ai.pipestream.module.pipelineprobe.health.GrpcHealthCheckTestBase;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 import org.junit.jupiter.api.AfterEach;

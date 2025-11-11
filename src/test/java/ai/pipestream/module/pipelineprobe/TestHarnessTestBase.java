@@ -1,13 +1,14 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
 
-import io.pipeline.data.v1.PipeDoc;
-import io.pipeline.data.v1.SearchMetadata;
-import io.pipeline.data.module.ProcessConfiguration;
-import io.pipeline.data.module.ModuleProcessRequest;
-import io.pipeline.data.module.ServiceMetadata;
-// import io.pipeline.data.util.proto.ProtobufTestDataHelper;  // Temporarily disabled
-import io.pipeline.testing.harness.grpc.*;
+import ai.pipestream.data.util.proto.ProtobufTestDataHelper;
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.v1.SearchMetadata;
+import ai.pipestream.data.module.ProcessConfiguration;
+import ai.pipestream.data.module.ModuleProcessRequest;
+import ai.pipestream.data.module.ServiceMetadata;
+// import ai.pipestream.data.util.proto.ProtobufTestDataHelper;  // Temporarily disabled
+import ai.pipestream.testing.harness.grpc.*;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -26,8 +27,8 @@ public abstract class TestHarnessTestBase {
 
     protected abstract TestHarness getTestHarness();
     
-    protected TestDataHelper getTestDataHelper() {
-        return new TestDataHelper();
+    protected ProtobufTestDataHelper getTestDataHelper() {
+        return new ProtobufTestDataHelper();
     }
 
     @Test

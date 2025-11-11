@@ -1,4 +1,4 @@
-package io.pipeline.module.testharness;
+package ai.pipestream.module.pipelineprobe;
 
 import io.quarkus.test.junit.QuarkusTestProfile;
 

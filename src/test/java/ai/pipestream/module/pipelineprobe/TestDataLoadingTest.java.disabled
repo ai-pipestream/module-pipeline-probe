@@ -1,8 +1,8 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
-import io.pipeline.data.v1.PipeDoc;
-import io.pipeline.data.v1.PipeStream;
-// import io.pipeline.data.util.proto.ProtobufTestDataHelper;  // Temporarily disabled
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.v1.PipeStream;
+// import ai.pipestream.data.util.proto.ProtobufTestDataHelper;  // Temporarily disabled
 
 import java.util.List;
 import io.quarkus.test.junit.QuarkusTest;
@@ -24,7 +24,7 @@ import static org.hamcrest.Matchers.*;
 //             PipeDoc.newBuilder()
 //                 .setDocId("test-doc-1")
 //                 .setSearchMetadata(
-//                     io.pipeline.data.v1.SearchMetadata.newBuilder()
+//                     ai.pipestream.data.v1.SearchMetadata.newBuilder()
 //                         .setTitle("Test Document")
 //                         .setBody("This is a test document body")
 //                         .build()

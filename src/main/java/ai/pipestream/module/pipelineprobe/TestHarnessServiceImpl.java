@@ -1,12 +1,12 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
 import com.google.protobuf.Empty;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.Value;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.pipeline.data.module.ModuleProcessRequest;
-import io.pipeline.testing.harness.grpc.*;
+import ai.pipestream.data.module.ModuleProcessRequest;
+import ai.pipestream.testing.harness.grpc.*;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;

@@ -1,12 +1,13 @@
 package com.rokkon.testmodule;
 
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.v1.SearchMetadata;
 import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import io.pipeline.data.model.PipeDoc;
-import io.pipeline.data.module.ModuleProcessRequest;
-import io.pipeline.data.module.ServiceMetadata;
-import io.pipeline.testing.harness.grpc.*;
+import ai.pipestream.data.module.ModuleProcessRequest;
+import ai.pipestream.data.module.ServiceMetadata;
+import ai.pipestream.testing.harness.grpc.*;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 import io.smallrye.mutiny.Multi;
 import io.quarkus.test.common.http.TestHTTPResource;
@@ -207,10 +208,12 @@ class TestHarnessServiceIT {
     
     private TestCommand createDocumentProcessCommand(String docId) {
         PipeDoc testDoc = PipeDoc.newBuilder()
-                .setId(docId)
-                .setTitle("Integration Test Document")
-                .setBody("Testing in production mode")
-                .build();
+                .setDocId(docId)
+                .setSearchMetadata(
+                        SearchMetadata.newBuilder()
+                                .setTitle("Integration Test Document")
+                                .setBody("Testing in production mode")
+                        .build()).build();
         
         ModuleProcessRequest processRequest = ModuleProcessRequest.newBuilder()
                 .setDocument(testDoc)

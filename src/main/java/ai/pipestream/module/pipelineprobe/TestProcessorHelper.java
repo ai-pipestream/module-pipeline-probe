@@ -1,12 +1,12 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
-import io.pipeline.data.v1.PipeDoc;
-import io.pipeline.data.v1.SearchMetadata;
-import io.pipeline.data.module.ProcessConfiguration;
-import io.pipeline.data.module.ModuleProcessRequest;
-import io.pipeline.data.module.ServiceMetadata;
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.v1.SearchMetadata;
+import ai.pipestream.data.module.ProcessConfiguration;
+import ai.pipestream.data.module.ModuleProcessRequest;
+import ai.pipestream.data.module.ServiceMetadata;
 
 import java.util.UUID;
 

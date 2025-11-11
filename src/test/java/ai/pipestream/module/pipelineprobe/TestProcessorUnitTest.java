@@ -1,6 +1,6 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
-import io.pipeline.data.module.PipeStepProcessor;
+import ai.pipestream.data.module.PipeStepProcessor;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.junit.QuarkusTest;
 

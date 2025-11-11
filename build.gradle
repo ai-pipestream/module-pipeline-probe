@@ -2,53 +2,20 @@ plugins {
     alias(libs.plugins.java)
     alias(libs.plugins.quarkus)
     alias(libs.plugins.maven.publish)
+    id 'signing'
+    id 'com.gradleup.nmcp' version '1.2.0'
 }
 
-// Build profile: default internal (rokkon), switch to external with GRADLE_BUILD_PROFILE=external
-def isExternalBuild = System.getenv('GRADLE_BUILD_PROFILE') == 'external'
-
-repositories {
-    mavenLocal()
-
-    // Always include Rokkon repos (internal)
-    maven {
-        name = "Reposilite"
-        url = uri("https://maven.rokkon.com/snapshots")
-        credentials {
-            username = project.findProperty("reposilite.user") ?: System.getenv("REPOS_USER") ?: "admin"
-            password = project.findProperty("reposilite.token") ?: System.getenv("REPOS_PAT")
-        }
-    }
-    maven {
-        name = "Gitea"
-        url = uri("https://git.rokkon.com/api/packages/io-pipeline/maven")
-        credentials {
-            username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
-            password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
-        }
-    }
-
-    if (isExternalBuild) {
-        // External: Add GitHub Packages for public access
-        maven {
-            name = "GitHub Packages"
-            url = uri("https://maven.pkg.github.com/io-pipeline/*")
-            credentials {
-                username = System.getenv("GITHUB_ACTOR") ?: "io-pipeline"
-                password = System.getenv("GITHUB_TOKEN")
-            }
-        }
-    }
-
-    // Fallback to public repos
-    mavenCentral()
-    maven { url 'https://repo.spring.io/release' }
-}
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.1.2-SNAPSHOT'
 
 dependencies {
-    testImplementation libs.quarkus.wiremock.test
-    implementation libs.quarkus.wiremock
-    implementation platform('io.pipeline:pipeline-bom:1.0.0-SNAPSHOT')
+    implementation 'io.quarkus:quarkus-container-image-docker'
+    // Import pipeline BOM to align all managed versions
+    implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
+
+    // Quarkus dependencies
+    implementation libs.quarkus.grpc
+    implementation libs.quarkus.arc
     implementation 'io.quarkus:quarkus-grpc'
     implementation 'io.quarkus:quarkus-arc'
 
@@ -70,19 +37,21 @@ dependencies {
 
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation 'io.rest-assured:rest-assured'
-    testImplementation 'io.pipeline:grpc-wiremock:1.0.0-SNAPSHOT'
+    testImplementation libs.pipestream.grpc.wiremock
+    // Pipestream libraries - versions managed entirely by the BOM/catalog
+    implementation libs.pipestream.compose.devservices
+    implementation libs.pipestream.grpc.stubs
+    implementation libs.pipestream.commons
+    implementation libs.pipestream.api
+    implementation libs.pipestream.data.util
+    implementation libs.pipestream.dynamic.grpc
+    implementation libs.pipestream.dynamic.grpc.registration.clients
 
-    implementation 'io.pipeline:grpc-stubs:1.0.0-SNAPSHOT'
-    implementation 'io.pipeline:pipeline-commons'
-    implementation 'io.pipeline:pipeline-api'
-    // implementation 'io.pipeline:data-util'  // Temporarily disabled - artifact not available
-    implementation 'io.pipeline:dynamic-grpc'
-    implementation 'io.pipeline:dynamic-grpc-registration-clients'
-    implementation 'io.pipeline:quarkus-pipeline-devservices:1.0.0-SNAPSHOT'
+
 }
 
 group 'io.pipeline.module'
-version '1.0.0-SNAPSHOT'
+version "${pipelineBomVersion}"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -110,56 +79,69 @@ publishing {
             pom {
                 name = 'Module Pipeline Probe'
                 description = 'Live testing and observation service for pipeline data streams'
-                url = 'https://github.com/io-pipeline/module-pipeline-probe'
-
+                url = 'https://github.com/ai-pipestream/module-pipeline-probe'
                 licenses {
                     license {
-                        name = 'Apache License 2.0'
-                        url = 'https://www.apache.org/licenses/LICENSE-2.0'
+                        name.set('MIT License')
+                        url.set('https://opensource.org/licenses/MIT')
                     }
                 }
 
                 developers {
                     developer {
-                        id = 'krickert'
-                        email = 'krickert@rokkon.com'
-                        name = 'Pipeline Engine Team'
+                        id.set('krickert')
+                        name.set('Pipestream Platform Team')
                     }
                 }
 
                 scm {
-                    connection = 'scm:git:ssh://git@git.rokkon.com:2222/io-pipeline/module-pipeline-probe.git'
-                    developerConnection = 'scm:git:ssh://git@git.rokkon.com:2222/io-pipeline/module-pipeline-probe.git'
-                    url = 'https://git.rokkon.com/io-pipeline/module-pipeline-probe'
+                    connection.set('scm:git:git://github.com/ai-pipestream/module-pipeline-probe.git')
+                    developerConnection.set('scm:git:ssh://github.com/ai-pipestream/module-pipeline-probe.git')
+                    url.set('https://github.com/ai-pipestream/module-pipeline-probe')
                 }
             }
         }
     }
 
+
     repositories {
         // Publish to Maven Local for development
         mavenLocal()
 
-        // Publish to Reposilite (primary artifact repository)
-        maven {
-            name = "Reposilite"
-            url = uri(version.toString().endsWith('-SNAPSHOT')
-                ? "https://maven.rokkon.com/snapshots"
-                : "https://maven.rokkon.com/releases")
-            credentials {
-                username = project.findProperty("reposilite.user") ?: System.getenv("REPOS_USER") ?: "admin"
-                password = project.findProperty("reposilite.token") ?: System.getenv("REPOS_PAT")
+        // Publish to GitHub Packages when credentials are available (e.g. CI)
+        def githubToken = providers.environmentVariable("GITHUB_TOKEN")
+        if (githubToken.isPresent()) {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/ai-pipestream/module-parser")
+                credentials {
+                    username = providers.environmentVariable("GITHUB_ACTOR").getOrElse("github-actions")
+                    password = githubToken.get()
+                }
+                mavenContent {
+                    releasesOnly()
+                }
             }
         }
+    }
+}
 
-        // Publish to Gitea Maven registry (backup)
-        maven {
-            name = "Gitea"
-            url = uri("https://git.rokkon.com/api/packages/io-pipeline/maven")
-            credentials {
-                username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
-                password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
-            }
-        }
+// Signing configuration for Maven Central
+signing {
+    def signingKey = System.getenv("GPG_SIGNING_KEY")
+    def signingPassword = System.getenv("GPG_SIGNING_PASSPHRASE")
+
+    if (signingKey && signingPassword) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.maven
+    }
+}
+
+// Maven Central publishing via nmcp plugin
+nmcp {
+    publishAllPublicationsToCentralPortal {
+        username = providers.environmentVariable("MAVEN_CENTRAL_USERNAME")
+        password = providers.environmentVariable("MAVEN_CENTRAL_PASSWORD")
+        publishingType = "AUTOMATIC"
     }
 }

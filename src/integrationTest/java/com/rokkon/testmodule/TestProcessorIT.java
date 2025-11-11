@@ -1,9 +1,9 @@
 package com.rokkon.testmodule;
+import ai.pipestream.module.pipelineprobe.TestProcessorTestBase;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
-import io.pipeline.data.module.PipeStepProcessor;
-import io.pipeline.data.module.PipeStepProcessorClient;
-import io.pipeline.module.testharness.TestProcessorTestBase;
+import ai.pipestream.data.module.PipeStepProcessor;
+import ai.pipestream.data.module.PipeStepProcessorClient;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

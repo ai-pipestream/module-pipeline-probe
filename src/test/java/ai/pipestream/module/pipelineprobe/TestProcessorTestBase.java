@@ -1,10 +1,10 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
-import io.pipeline.data.v1.PipeDoc;
-import io.pipeline.data.v1.SearchMetadata;
-import io.pipeline.data.module.*;
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.v1.SearchMetadata;
+import ai.pipestream.data.module.*;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.Test;

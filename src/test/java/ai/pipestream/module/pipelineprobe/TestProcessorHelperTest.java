@@ -1,17 +1,16 @@
-package io.pipeline.module.pipelineprobe;
+package ai.pipestream.module.pipelineprobe;
 
-import io.pipeline.data.v1.PipeDoc;
-import io.pipeline.data.module.PipeStepProcessor;
-import io.pipeline.data.module.ModuleProcessRequest;
-import io.pipeline.data.module.ModuleProcessResponse;
-import io.pipeline.module.pipelineprobe.TestProcessorHelper;
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.module.PipeStepProcessor;
+import ai.pipestream.data.module.ModuleProcessRequest;
+import ai.pipestream.data.module.ModuleProcessResponse;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.junit.QuarkusTest;
 import io.smallrye.mutiny.helpers.test.UniAssertSubscriber;
 import org.junit.jupiter.api.Test;
 import org.jboss.logging.Logger;
 
-import static io.pipeline.module.pipelineprobe.TestProcessorHelper.*;
+import static ai.pipestream.module.pipelineprobe.TestProcessorHelper.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 
