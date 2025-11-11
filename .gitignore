@@ -391,3 +391,4 @@ local.properties
 build
 .idea/
 .vscode
+.claude/
