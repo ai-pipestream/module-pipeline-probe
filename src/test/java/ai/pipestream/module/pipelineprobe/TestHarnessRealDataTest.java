@@ -13,9 +13,11 @@ import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.helpers.test.AssertSubscriber;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -46,6 +48,19 @@ class TestHarnessRealDataTest {
 
 
     TestDataHelper testDataHelper = new TestDataHelper();
+
+    // Ensure real-data tests only run when sample documents are available
+    @BeforeAll
+    void checkSampleDocumentsAvailability() {
+        SampleDocumentsResolver resolver = new SampleDocumentsResolver();
+        Assumptions.assumeTrue(
+                resolver.resolve().isPresent(),
+                "Sample documents directory not available. Set system property '" +
+                        SampleDocumentsResolver.SYS_PROP + "', env var '" +
+                        SampleDocumentsResolver.ENV_VAR + "', or config '" +
+                        SampleDocumentsResolver.CFG_PROP + "' to the sample-documents path."
+        );
+    }
 
     @BeforeEach
     void setup() {
