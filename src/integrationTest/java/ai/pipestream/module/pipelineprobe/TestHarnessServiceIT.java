@@ -1,4 +1,4 @@
-package com.rokkon.testmodule;
+package ai.pipestream.module.pipelineprobe;
 
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.data.v1.SearchMetadata;

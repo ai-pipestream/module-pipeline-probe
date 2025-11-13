@@ -1,5 +1,4 @@
-package com.rokkon.testmodule;
-import ai.pipestream.module.pipelineprobe.TestProcessorTestBase;
+package ai.pipestream.module.pipelineprobe;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import ai.pipestream.data.module.PipeStepProcessor;

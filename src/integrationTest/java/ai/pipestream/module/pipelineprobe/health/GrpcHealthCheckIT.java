@@ -1,9 +1,8 @@
-package com.rokkon.testmodule.health;
+package ai.pipestream.module.pipelineprobe.health;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.health.v1.HealthGrpc;
-import ai.pipestream.module.pipelineprobe.health.GrpcHealthCheckTestBase;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
 import org.junit.jupiter.api.AfterEach;

@@ -1,7 +1,6 @@
-package com.rokkon.testmodule;
+package ai.pipestream.module.pipelineprobe;
 
 import ai.pipestream.data.util.proto.ProtobufTestDataHelper;
-import ai.pipestream.module.pipelineprobe.TestHarnessTestBase;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import ai.pipestream.testing.harness.grpc.TestHarness;
