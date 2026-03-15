@@ -88,6 +88,54 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
             );
     }
 
+    public Uni<RunModuleTestResponse> runModuleTestWithPipeDoc(
+            String moduleName,
+            Struct moduleConfig,
+            String accountId,
+            ServiceContext context,
+            PipeDoc inputDocument,
+            boolean includeOutputDoc
+    ) {
+        if (moduleName == null || moduleName.isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("module_name is required"));
+        }
+        if (inputDocument == null) {
+            return Uni.createFrom().failure(new IllegalArgumentException("input document is required"));
+        }
+
+        long startedAtMs = System.currentTimeMillis();
+        Timestamp startedAt = toTimestamp(startedAtMs);
+        Struct resolvedModuleConfig = moduleConfig == null ? Struct.getDefaultInstance() : moduleConfig;
+        ServiceContext resolvedContext = context == null ? ServiceContext.getDefaultInstance() : context;
+
+        return executeModuleCall(
+                    moduleName,
+                    inputDocument,
+                    resolvedModuleConfig,
+                    resolvedContext
+            )
+            .map(processResponse -> buildDirectRunResponse(
+                    moduleName,
+                    resolvedContext,
+                    accountId,
+                    includeOutputDoc,
+                    processResponse,
+                    startedAtMs,
+                    startedAt
+            ))
+            .onFailure().recoverWithItem(throwable ->
+                    buildRunResponseFromFailure(resolveText(moduleName, "unknown"), throwable, startedAtMs, startedAt)
+            );
+    }
+
+    public Uni<Boolean> isParserModule(String moduleName) {
+        if (moduleName == null || moduleName.isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("moduleName is required"));
+        }
+
+        return loadServiceRegistration(moduleName).map(this::isParserModule);
+    }
+
     public Uni<List<ModuleTestingSidecarModels.ModuleTargetInfo>> listTargets(boolean parserOnly) {
         return listModules()
             .onItem().transformToMulti(modules -> Multi.createFrom().iterable(modules))
@@ -267,29 +315,44 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
     }
 
     private Uni<ProcessDataResponse> executeModuleCall(RunModuleTestRequest request, PipeDoc document) {
+        return executeModuleCall(
+                request.getModuleName(),
+                document,
+                request.getModuleConfig(),
+                request.hasContext() ? request.getContext() : ServiceContext.getDefaultInstance()
+        );
+    }
+
+    private Uni<ProcessDataResponse> executeModuleCall(
+            String moduleName,
+            PipeDoc document,
+            Struct moduleConfig,
+            ServiceContext context
+    ) {
         ProcessDataRequest processDataRequest = ProcessDataRequest.newBuilder()
             .setDocument(document)
-            .setMetadata(buildServiceMetadata(request))
-            .setConfig(ProcessConfiguration.newBuilder().setJsonConfig(request.getModuleConfig()))
+            .setMetadata(buildServiceMetadata(context))
+            .setConfig(ProcessConfiguration.newBuilder().setJsonConfig(moduleConfig == null ? Struct.getDefaultInstance() : moduleConfig))
             .setIsTest(true)
             .build();
 
-        return grpcClientFactory.getClient(request.getModuleName(), MutinyPipeStepProcessorServiceGrpc::newMutinyStub)
+        return grpcClientFactory.getClient(moduleName, MutinyPipeStepProcessorServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.processData(processDataRequest));
     }
 
-    private ServiceMetadata buildServiceMetadata(RunModuleTestRequest request) {
-        ServiceContext context = request.hasContext()
-            ? request.getContext()
-            : ServiceContext.getDefaultInstance();
-
+    private ServiceMetadata buildServiceMetadata(ServiceContext context) {
+        ServiceContext resolvedContext = context == null ? ServiceContext.getDefaultInstance() : context;
         return ServiceMetadata.newBuilder()
-            .setPipelineName(resolveText(context.getPipelineName(), defaultPipelineName))
-            .setPipeStepName(resolveText(context.getPipeStepName(), defaultStepName))
-            .setStreamId(resolveText(context.getStreamId(), UUID.randomUUID().toString()))
-            .setCurrentHopNumber(context.getCurrentHopNumber() <= 0 ? 1 : context.getCurrentHopNumber())
-            .putAllContextParams(context.getContextParamsMap())
+            .setPipelineName(resolveText(resolvedContext.getPipelineName(), defaultPipelineName))
+            .setPipeStepName(resolveText(resolvedContext.getPipeStepName(), defaultStepName))
+            .setStreamId(resolveText(resolvedContext.getStreamId(), UUID.randomUUID().toString()))
+            .setCurrentHopNumber(resolvedContext.getCurrentHopNumber() <= 0 ? 1 : resolvedContext.getCurrentHopNumber())
+            .putAllContextParams(resolvedContext.getContextParamsMap())
             .build();
+    }
+
+    private ServiceMetadata buildServiceMetadata(RunModuleTestRequest request) {
+        return buildServiceMetadata(request.hasContext() ? request.getContext() : ServiceContext.getDefaultInstance());
     }
 
     private RunModuleTestResponse buildRunResponse(
@@ -313,6 +376,45 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
             .setOutputSummary(buildOutputSummary(processResponse));
 
         if (request.getIncludeOutputDoc() && processResponse.hasOutputDoc()) {
+            responseBuilder.setOutputDoc(processResponse.getOutputDoc());
+        }
+        if (!processResponse.getSuccess()) {
+            responseBuilder.setErrorCode("PROCESS_DATA_ERROR");
+        }
+
+        responseBuilder.setProcessDataResponse(processResponse);
+
+        if (processResponse.hasErrorDetails()) {
+            responseBuilder.addErrors(processResponse.getErrorDetails().toString());
+        }
+
+        return responseBuilder.build();
+    }
+
+    private RunModuleTestResponse buildDirectRunResponse(
+            String moduleName,
+            ServiceContext context,
+            String accountId,
+            boolean includeOutputDoc,
+            ProcessDataResponse processResponse,
+            long startedAtMs,
+            Timestamp startedAt
+    ) {
+        long completedAtMs = System.currentTimeMillis();
+        long durationMs = Math.max(1L, completedAtMs - startedAtMs);
+
+        RunModuleTestResponse.Builder responseBuilder = RunModuleTestResponse.newBuilder()
+                .setSuccess(processResponse.getSuccess())
+                .setMessage(processResponse.getSuccess() ? "Module execution completed" : "Module execution failed")
+                .setDurationMs(durationMs)
+                .setElapsedMs(durationMs)
+                .setStartedAt(startedAt)
+                .setCompletedAt(toTimestamp(completedAtMs))
+                .addAllProcessorLogs(processResponse.getProcessorLogsList())
+                .setInputSummary(buildDirectInputSummary(moduleName, context, accountId, includeOutputDoc))
+                .setOutputSummary(buildOutputSummary(processResponse));
+
+        if (includeOutputDoc && processResponse.hasOutputDoc()) {
             responseBuilder.setOutputDoc(processResponse.getOutputDoc());
         }
         if (!processResponse.getSuccess()) {
@@ -467,6 +569,27 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
         }
 
         return summary.build();
+    }
+
+    private Struct buildDirectInputSummary(
+            String moduleName,
+            ServiceContext context,
+            String accountId,
+            boolean includeOutputDoc
+    ) {
+        ServiceContext resolvedContext = context == null ? ServiceContext.getDefaultInstance() : context;
+
+        return Struct.newBuilder()
+                .putFields("moduleName", Value.newBuilder().setStringValue(resolveText(moduleName, "unknown")).build())
+                .putFields("inputSource", Value.newBuilder().setStringValue("DIRECT_DOC").build())
+                .putFields("includeOutputDoc", Value.newBuilder().setBoolValue(includeOutputDoc).build())
+                .putFields("accountId", Value.newBuilder().setStringValue(resolveText(accountId, "unknown")).build())
+                .putFields("pipelineName", Value.newBuilder().setStringValue(resolvedContext.getPipelineName()).build())
+                .putFields("pipeStepName", Value.newBuilder().setStringValue(resolvedContext.getPipeStepName()).build())
+                .putFields("streamId", Value.newBuilder().setStringValue(resolvedContext.getStreamId()).build())
+                .putFields("currentHopNumber", Value.newBuilder().setNumberValue(resolvedContext.getCurrentHopNumber()).build())
+                .putFields("directDocType", Value.newBuilder().setStringValue("sample_pipe_doc").build())
+                .build();
     }
 
     private Struct buildOutputSummary(ProcessDataResponse processResponse) {

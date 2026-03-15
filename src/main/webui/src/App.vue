@@ -99,6 +99,25 @@
 
     <section class="card">
       <h2>3) Module config</h2>
+      <div v-if="selectedTarget?.parser" class="parser-engine-options">
+        <h3>Parser engine options</h3>
+        <label>
+          <input
+            type="checkbox"
+            :checked="parserEngineFlags.enableTika"
+            @change="setParserConfigValue('enableTika', $event.target.checked)"
+          />
+          Enable Tika
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            :checked="parserEngineFlags.enableDocling"
+            @change="setParserConfigValue('enableDocling', $event.target.checked)"
+          />
+          Enable Docling
+        </label>
+      </div>
       <p class="muted">The target provides a JSON schema; you can edit the JSON below. A malformed JSON payload is rejected before calling the API.</p>
       <textarea
         v-model="moduleConfigText"
@@ -258,7 +277,20 @@ const deriveDefaultConfigFromSchema = (schema) => {
   }
 
   if (schema.examples && Array.isArray(schema.examples) && schema.examples.length > 0) {
-    return { ...schema.examples[0] }
+    const exampleValue = schema.examples[0]
+    if (exampleValue && typeof exampleValue === 'object' && !Array.isArray(exampleValue)) {
+      return { ...exampleValue }
+    }
+    if (typeof exampleValue === 'string') {
+      try {
+        const parsedExample = JSON.parse(exampleValue)
+        if (parsedExample && typeof parsedExample === 'object' && !Array.isArray(parsedExample)) {
+          return parsedExample
+        }
+      } catch (_err) {
+        // Ignore non-object examples and continue to property-level defaults
+      }
+    }
   }
 
   if (!schema.properties) {
@@ -276,6 +308,52 @@ const deriveDefaultConfigFromSchema = (schema) => {
   })
 
   return result
+}
+
+const ensureParserDefaults = (defaults, isParserModule) => {
+  if (!isParserModule || !defaults || typeof defaults !== 'object' || Array.isArray(defaults)) {
+    return defaults
+  }
+
+  const merged = { ...defaults }
+  if (!Object.prototype.hasOwnProperty.call(merged, 'enableTika')) {
+    merged.enableTika = true
+  }
+  if (!Object.prototype.hasOwnProperty.call(merged, 'enableDocling')) {
+    merged.enableDocling = false
+  }
+  return merged
+}
+
+const parserConfig = computed(() => {
+  if (!selectedTarget.value?.parser) {
+    return {}
+  }
+  try {
+    const parsed = parseModuleConfig()
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch (_err) {
+    return {}
+  }
+})
+
+const parserEngineFlags = computed(() => ({
+  enableTika: parserConfig.value.enableTika !== undefined ? Boolean(parserConfig.value.enableTika) : true,
+  enableDocling: parserConfig.value.enableDocling !== undefined ? Boolean(parserConfig.value.enableDocling) : false
+}))
+
+const setParserConfigValue = (key, value) => {
+  let current = {}
+  try {
+    const parsed = parseModuleConfig()
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      current = { ...parsed }
+    }
+  } catch (_err) {
+    current = {}
+  }
+  current[key] = value
+  moduleConfigText.value = JSON.stringify(current, null, 2)
 }
 
 const loadTargets = async () => {
@@ -369,8 +447,9 @@ const applyTargetSchemaDefaults = (target) => {
   }
 
   const defaults = deriveDefaultConfigFromSchema(schema)
-  moduleConfigText.value = Object.keys(defaults).length > 0
-    ? JSON.stringify(defaults, null, 2)
+  const mergedDefaults = ensureParserDefaults(defaults, target.parser)
+  moduleConfigText.value = Object.keys(mergedDefaults).length > 0
+    ? JSON.stringify(mergedDefaults, null, 2)
     : '{}'
 }
 
@@ -637,6 +716,21 @@ button:disabled {
   flex-wrap: wrap;
   margin-top: 8px;
   font-size: 14px;
+}
+
+.parser-engine-options {
+  margin-bottom: 10px;
+}
+
+.parser-engine-options h3 {
+  margin: 0 0 8px;
+}
+
+.parser-engine-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 16px;
 }
 
 .warning {

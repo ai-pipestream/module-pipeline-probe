@@ -4,6 +4,8 @@ import ai.pipestream.testing.harness.v1.RepositoryInput;
 import ai.pipestream.testing.harness.v1.RunModuleTestRequest;
 import ai.pipestream.testing.harness.v1.ServiceContext;
 import ai.pipestream.testing.harness.v1.UploadInput;
+import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.data.v1.SearchMetadata;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -33,11 +35,13 @@ import org.jboss.resteasy.reactive.multipart.FileUpload;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * REST resource for the module-testing-sidecar.
@@ -98,9 +102,17 @@ public class ModuleTestingSidecarResource {
     @Path("/run/sample")
     @Consumes(MediaType.APPLICATION_JSON)
     public Uni<Response> runSample(RunSampleRequest request) {
-        return Uni.createFrom().item(() -> buildRunRequestFromSample(request))
-                .flatMap(testingService::runModuleTest)
-                .map(this::protobufToJsonResponse);
+        return testingService.isParserModule(request == null ? null : request.moduleName())
+                .chain(isParser -> {
+                    if (isParser) {
+                        return Uni.createFrom().item(() -> buildRunRequestFromSample(request))
+                                .flatMap(testingService::runModuleTest)
+                                .map(this::protobufToJsonResponse);
+                    }
+
+                    return runSampleAsPipeDoc(request)
+                            .map(this::protobufToJsonResponse);
+                });
     }
 
     @POST
@@ -222,14 +234,8 @@ public class ModuleTestingSidecarResource {
             throw new IllegalArgumentException("sampleId is required");
         }
 
-        SampleDocument sample = SampleDocument.fromId(request.sampleId());
-        byte[] fileBytes;
-        try {
-            fileBytes = sample.loadBytes();
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Failed to load sample file: " + sample.getFileName(), e);
-        }
-
+        SampleDocument sample = resolveSample(request.sampleId());
+        byte[] fileBytes = loadSampleBytes(sample);
         return RunModuleTestRequest.newBuilder()
                 .setModuleName(request.moduleName())
                 .setModuleConfig(parseStruct(request.moduleConfig()))
@@ -247,6 +253,73 @@ public class ModuleTestingSidecarResource {
                         .setMimeType(sample.getMimeType())
                         .setFileData(ByteString.copyFrom(fileBytes))
                         .build())
+                .build();
+    }
+
+    private Uni<ai.pipestream.testing.harness.v1.RunModuleTestResponse> runSampleAsPipeDoc(RunSampleRequest request) {
+        if (request == null || request.moduleName() == null || request.moduleName().isBlank()) {
+            throw new IllegalArgumentException("moduleName is required");
+        }
+        if (request.sampleId() == null || request.sampleId().isBlank()) {
+            throw new IllegalArgumentException("sampleId is required");
+        }
+
+        SampleDocument sample = resolveSample(request.sampleId());
+        if (!isTextSample(sample)) {
+            throw new IllegalArgumentException("The selected module is non-parser, so sample input must include text content directly. "
+                    + "Use text samples or run a parser first to produce a repository fixture.");
+        }
+
+        byte[] fileBytes = loadSampleBytes(sample);
+        PipeDoc inputDocument = buildPipeDocFromSample(sample, fileBytes);
+
+        return testingService.runModuleTestWithPipeDoc(
+                request.moduleName(),
+                parseStruct(request.moduleConfig()),
+                request.accountId(),
+                buildContext(
+                        request.pipelineName(),
+                        request.pipeStepName(),
+                        request.streamId(),
+                        request.currentHopNumber(),
+                        request.contextParams()
+                ),
+                inputDocument,
+                request.includeOutputDoc()
+        );
+    }
+
+    private boolean isTextSample(SampleDocument sample) {
+        return sample != null
+                && sample.getMimeType() != null
+                && sample.getMimeType().toLowerCase().startsWith("text/");
+    }
+
+    private SampleDocument resolveSample(String sampleId) {
+        if (sampleId == null || sampleId.isBlank()) {
+            throw new IllegalArgumentException("sampleId is required");
+        }
+        return SampleDocument.fromId(sampleId);
+    }
+
+    private byte[] loadSampleBytes(SampleDocument sample) {
+        try {
+            return sample.loadBytes();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to load sample file: " + sample.getFileName(), e);
+        }
+    }
+
+    private PipeDoc buildPipeDocFromSample(SampleDocument sample, byte[] fileBytes) {
+        SearchMetadata searchMetadata = SearchMetadata.newBuilder()
+                .setTitle(sample.getTitle())
+                .setBody(new String(fileBytes, StandardCharsets.UTF_8))
+                .setSourceMimeType(sample.getMimeType())
+                .build();
+
+        return PipeDoc.newBuilder()
+                .setDocId(UUID.randomUUID().toString())
+                .setSearchMetadata(searchMetadata)
                 .build();
     }
 
