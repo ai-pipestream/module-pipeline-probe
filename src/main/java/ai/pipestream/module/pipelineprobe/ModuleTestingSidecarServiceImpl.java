@@ -88,7 +88,7 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
     @ConfigProperty(name = "module.testing.sidecar.default-step-name", defaultValue = "module-testing-step")
     String defaultStepName;
 
-    @ConfigProperty(name = "module.testing.sidecar.engine-service", defaultValue = "pipestream-engine")
+    @ConfigProperty(name = "module.testing.sidecar.engine-service", defaultValue = "engine")
     String engineServiceName;
 
     private static final int MAX_CHAIN_STEPS = 10;
@@ -201,15 +201,20 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
                             orderedSteps.size()
                     );
                 })
-                .onFailure().recoverWithItem(failure ->
-                        new ModuleTestingSidecarModels.ChainRunResponse(
+                .onFailure().recoverWithItem(failure -> {
+                        LOG.errorf(failure, "Chain test failed with unexpected error");
+                        String errorDetail = failure.getMessage();
+                        if (failure.getCause() != null) {
+                            errorDetail += " — caused by: " + failure.getCause().getMessage();
+                        }
+                        return new ModuleTestingSidecarModels.ChainRunResponse(
                                 false,
                                 -1,
                                 Math.max(1L, System.currentTimeMillis() - startedAtMs),
-                                resolveText(failure.getMessage(), "chain test failed"),
+                                resolveText(errorDetail, "chain test failed"),
                                 List.of()
-                        )
-                )
+                        );
+                })
                 .ifNoItem().after(CHAIN_TEST_TIMEOUT).failWith(new IllegalStateException(
                         "chain test exceeded timeout of " + CHAIN_TEST_TIMEOUT.toMinutes() + " minutes"));
     }
