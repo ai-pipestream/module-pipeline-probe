@@ -357,7 +357,15 @@
               </div>
               <div class="step-summary">
                 <strong>Output summary:</strong>
-                <pre>{{ JSON.stringify(step.outputDocSummary || step.output_doc_summary || {}, null, 2) }}</pre>
+                <VueJsonPretty
+                  :data="step.outputDocSummary || step.output_doc_summary || {}"
+                  :deep="3"
+                  :showLength="true"
+                  :showLine="false"
+                  :showDoubleQuotes="true"
+                  :showIcon="true"
+                  :collapsedOnClickBrackets="true"
+                />
               </div>
               <div class="row">
                 <button type="button" class="btn-small" @click="toggleChainStepOutput(step.stepIndex ?? step.step_index)">
@@ -372,7 +380,25 @@
                   Save as fixture
                 </button>
               </div>
-              <pre v-if="chainOutputExpanded[step.stepIndex ?? step.step_index]">{{ JSON.stringify(step.output_doc || step.outputDoc, null, 2) }}</pre>
+              <div v-if="chainOutputExpanded[step.stepIndex ?? step.step_index]" class="json-viewer-wrap">
+                <div class="result-actions">
+                  <label class="depth-control">
+                    Expand depth
+                    <input type="number" v-model.number="chainJsonDepth" min="1" max="20" />
+                  </label>
+                  <button type="button" class="btn-small" @click="chainJsonDepth = 1">Collapse</button>
+                  <button type="button" class="btn-small" @click="chainJsonDepth = 10">Expand</button>
+                </div>
+                <VueJsonPretty
+                  :data="compactVectors(step.output_doc || step.outputDoc)"
+                  :deep="chainJsonDepth"
+                  :showLength="true"
+                  :showLine="false"
+                  :showDoubleQuotes="true"
+                  :showIcon="true"
+                  :collapsedOnClickBrackets="true"
+                />
+              </div>
             </div>
           </details>
         </div>
@@ -407,6 +433,7 @@ const chainResult = ref(null)
 const chainIncludeFullOutput = ref(false)
 const chainCopyLabel = ref('Copy chain JSON')
 const chainOutputExpanded = ref({})
+const chainJsonDepth = ref(3)
 const chainDraggedIndex = ref(-1)
 
 const targets = ref([])
@@ -576,6 +603,29 @@ const copyChainResult = async () => {
     chainCopyLabel.value = 'Copy failed'
     setTimeout(() => { chainCopyLabel.value = 'Copy chain JSON' }, 2000)
   }
+}
+
+/**
+ * Recursively compact vector arrays into inline strings for display.
+ * Turns [0.123, -0.456, ...] (384 entries) into "float[384]: [0.123, -0.456, ...]"
+ */
+const compactVectors = (obj) => {
+  if (obj === null || obj === undefined) return obj
+  if (Array.isArray(obj)) {
+    if (obj.length > 10 && obj.every(v => typeof v === 'number')) {
+      const preview = obj.slice(0, 5).map(v => v.toFixed(6)).join(', ')
+      return `float[${obj.length}]: [${preview}, ...]`
+    }
+    return obj.map(compactVectors)
+  }
+  if (typeof obj === 'object') {
+    const result = {}
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = compactVectors(value)
+    }
+    return result
+  }
+  return obj
 }
 
 const createChainStep = () => {
