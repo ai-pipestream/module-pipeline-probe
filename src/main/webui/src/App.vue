@@ -534,7 +534,7 @@ const chainPresets = ref([
   },
   {
     id: 'parser-semantic-manager-multi',
-    name: 'Parser → Semantic Manager (2 chunkers × 2 embedders)',
+    name: 'Parser → Semantic Manager (2×3 = 6 result sets)',
     steps: [
       { moduleHint: 'parser', moduleConfig: { enableTika: true } },
       {
@@ -550,7 +550,8 @@ const chainPresets = ref([
             ],
             embedder_configs: [
               { config_id: 'minilm_v2', config: { embedding_models: ['ALL_MINILM_L6_V2'], check_chunks: true } },
-              { config_id: 'mpnet_v2', config: { embedding_models: ['ALL_MPNET_BASE_V2'], check_chunks: true } }
+              { config_id: 'mpnet_v2', config: { embedding_models: ['ALL_MPNET_BASE_V2'], check_chunks: true } },
+              { config_id: 'bge_m3', config: { embedding_models: ['BGE_M3'], check_chunks: true } }
             ]
           }]
         }
