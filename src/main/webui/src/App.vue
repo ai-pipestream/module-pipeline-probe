@@ -6,6 +6,20 @@
     </header>
 
     <section class="card">
+      <div class="mode-switch">
+        <label>
+          <input type="radio" value="module" v-model="activeTestMode" />
+          Module Test
+        </label>
+        <label>
+          <input type="radio" value="chain" v-model="activeTestMode" />
+          Chain Test
+        </label>
+      </div>
+    </section>
+
+    <template v-if="activeTestMode === 'module'">
+      <section class="card">
       <h2>1) Select a module</h2>
       <div class="row">
         <label for="module-select">Target module</label>
@@ -173,6 +187,197 @@
         />
       </div>
     </section>
+    </template>
+
+    <template v-else>
+      <section class="card">
+        <h2>1) Chain input</h2>
+        <div class="mode-switch">
+          <label>
+            <input type="radio" value="sample" v-model="chainInputMode" />
+            Sample document
+          </label>
+          <label>
+            <input type="radio" value="upload" v-model="chainInputMode" />
+            Upload file
+          </label>
+          <label>
+            <input type="radio" value="repository" v-model="chainInputMode" />
+            Repository document
+          </label>
+        </div>
+
+        <div v-if="chainInputMode === 'sample'" class="row">
+          <label for="chain-sample-doc-select">Sample document</label>
+          <select id="chain-sample-doc-select" v-model="chainSelectedSampleId">
+            <option value="" disabled>Choose a sample file</option>
+            <option
+              v-for="sample in sampleDocuments"
+              :key="sample.id"
+              :value="sample.id"
+            >
+              {{ sample.title }} ({{ sample.mimeType.split('/')[1] }}) -- {{ formatBytes(sample.sizeBytes) }}
+            </option>
+          </select>
+        </div>
+
+        <div v-if="chainInputMode === 'upload'" class="row">
+          <label for="chain-input-file">Input file</label>
+          <input id="chain-input-file" type="file" @change="onChainFileSelected" />
+          <p v-if="chainSelectedFile">Selected: {{ chainSelectedFile.name }}</p>
+        </div>
+
+        <div v-if="chainInputMode === 'repository'" class="row">
+          <label for="chain-repository-doc-select">Repository document</label>
+          <select id="chain-repository-doc-select" v-model="chainSelectedRepositoryNodeId">
+            <option value="" disabled>Choose document</option>
+            <option
+              v-for="doc in sortedRepositoryDocuments"
+              :key="doc.nodeId"
+              :value="doc.nodeId"
+            >
+              {{ doc.label }}
+            </option>
+          </select>
+          <button type="button" @click="refreshRepositoryDocuments">Refresh documents</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>2) Chain steps</h2>
+        <div class="row">
+          <label for="chain-preset-select">Preset</label>
+          <select id="chain-preset-select" v-model="selectedChainPreset" @change="applyChainPreset">
+            <option value="" disabled>Choose a preset</option>
+            <option
+              v-for="preset in chainPresets"
+              :key="preset.id"
+              :value="preset.id"
+            >
+              {{ preset.name }}
+            </option>
+          </select>
+          <button type="button" class="btn-secondary" @click="addChainStep">Add step</button>
+        </div>
+
+        <div
+          v-for="(step, index) in chainSteps"
+          :key="step.key"
+          class="chain-step"
+          draggable="true"
+          @dragstart="onChainStepDragStart(index)"
+          @dragover.prevent
+          @drop="onChainStepDrop(index)"
+        >
+          <h3>Step {{ index + 1 }}</h3>
+          <div class="chain-step-actions">
+            <button type="button" class="btn-small" :disabled="index === 0" @click="moveChainStep(index, -1)">↑</button>
+            <button type="button" class="btn-small" :disabled="index === chainSteps.length - 1" @click="moveChainStep(index, 1)">↓</button>
+            <button type="button" class="btn-small btn-secondary" @click="removeChainStep(index)" :disabled="chainSteps.length <= 1">Remove</button>
+          </div>
+
+          <div class="row">
+            <label :for="`chain-module-${index}`">Module</label>
+            <select :id="`chain-module-${index}`" v-model="step.moduleName" @change="onChainModuleChanged(index)">
+              <option value="" disabled>Select module</option>
+              <option
+                v-for="target in targets"
+                :key="`${step.key}-${target.moduleName}`"
+                :value="target.moduleName"
+              >
+                {{ target.displayName || target.moduleName }}
+              </option>
+            </select>
+          </div>
+
+          <label>Module config</label>
+          <textarea rows="6" v-model="step.moduleConfigText"></textarea>
+
+          <details class="chain-mappings">
+            <summary>Advanced mappings</summary>
+            <label>pre_mappings</label>
+            <textarea rows="4" v-model="step.preMappingsText"></textarea>
+            <label>post_mappings</label>
+            <textarea rows="4" v-model="step.postMappingsText"></textarea>
+            <label>filter_conditions</label>
+            <textarea rows="4" v-model="step.filterConditionsText"></textarea>
+          </details>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) Run chain</h2>
+        <label class="inline-check">
+          <input type="checkbox" v-model="chainIncludeFullOutput" />
+          Include full output for each step
+        </label>
+        <div class="row">
+          <button type="button" @click="runChain" :disabled="chainRunning || !canRunChain">{{ chainRunning ? 'Running...' : 'Run chain' }}</button>
+          <button type="button" @click="clearChainResult" :disabled="!chainResult && !chainRunError">Clear result</button>
+        </div>
+        <p v-if="chainRunError" class="warning">{{ chainRunError }}</p>
+      </section>
+
+      <section class="card result-card" v-if="chainResult">
+        <div class="result-header">
+          <h2>Chain result</h2>
+          <div class="result-actions">
+            <button type="button" class="btn-small btn-secondary" @click="copyChainResult">{{ chainCopyLabel }}</button>
+          </div>
+        </div>
+        <div class="result-summary">
+          <span class="summary-chip"><strong>Success:</strong> {{ (chainResult.success ?? chainResult.is_success) ? 'yes' : 'no' }}</span>
+          <span class="summary-chip"><strong>Duration:</strong> {{ chainResult.totalDurationMs ?? chainResult.total_duration_ms }}ms</span>
+          <span class="summary-chip"><strong>Failed step:</strong> {{ (chainResult.failedAtStep ?? chainResult.failed_at_step) >= 0 ? ((chainResult.failedAtStep ?? chainResult.failed_at_step) + 1) : 'n/a' }}</span>
+          <span class="summary-chip"><strong>Message:</strong> {{ chainResult.message || chainResult.error || '' }}</span>
+        </div>
+        <div class="chain-steps-timeline">
+          <details v-for="step in (chainResult.steps || chainResult.chain_steps || [])" :key="`step-${step.stepIndex ?? step.step_index}`">
+            <summary>
+              Step {{ (step.stepIndex ?? step.step_index ?? 0) + 1 }} — {{ step.moduleName || step.module_name || 'unknown' }} —
+              <span :class="(step.success ?? step.successful) ? 'status-success' : 'status-error'">
+                {{ (step.success ?? step.successful) ? 'success' : 'failed' }}
+              </span>
+              ({{ step.durationMs ?? step.duration_ms }}ms)
+            </summary>
+            <div class="chain-step-detail">
+              <div class="step-log-grid">
+                <div>
+                  <h4>Processor logs</h4>
+                  <ul>
+                    <li v-for="(log, logIndex) in (step.processorLogs || step.processor_logs || [])" :key="`step-${step.stepIndex ?? step.step_index}-processor-${logIndex}`">{{ log }}</li>
+                  </ul>
+                </div>
+                <div>
+                  <h4>Engine logs</h4>
+                  <ul>
+                    <li v-for="(log, logIndex) in (step.engineLogs || step.engine_logs || [])" :key="`step-${step.stepIndex ?? step.step_index}-engine-${logIndex}`">{{ log }}</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="step-summary">
+                <strong>Output summary:</strong>
+                <pre>{{ JSON.stringify(step.outputDocSummary || step.output_doc_summary || {}, null, 2) }}</pre>
+              </div>
+              <div class="row">
+                <button type="button" class="btn-small" @click="toggleChainStepOutput(step.stepIndex ?? step.step_index)">
+                  View / hide full output
+                </button>
+                <button
+                  v-if="step.outputDoc || step.output_doc"
+                  type="button"
+                  class="btn-small btn-secondary"
+                  @click="saveChainOutput(step.stepIndex ?? step.step_index)"
+                >
+                  Save as fixture
+                </button>
+              </div>
+              <pre v-if="chainOutputExpanded[step.stepIndex ?? step.step_index]">{{ JSON.stringify(step.output_doc || step.outputDoc, null, 2) }}</pre>
+            </div>
+          </details>
+        </div>
+      </section>
+    </template>
   </main>
 </template>
 
@@ -190,6 +395,19 @@ const API_BASE = (() => {
   const root = path.substring(0, adminIndex)
   return `${root}/test-sidecar/v1`.replace(/\/+/g, '/')
 })()
+
+const activeTestMode = ref('module')
+const chainInputMode = ref('sample')
+const chainSelectedSampleId = ref('')
+const chainSelectedRepositoryNodeId = ref('')
+const chainSelectedFile = ref(null)
+const chainRunning = ref(false)
+const chainRunError = ref('')
+const chainResult = ref(null)
+const chainIncludeFullOutput = ref(false)
+const chainCopyLabel = ref('Copy chain JSON')
+const chainOutputExpanded = ref({})
+const chainDraggedIndex = ref(-1)
 
 const targets = ref([])
 const selectedModuleName = ref('')
@@ -214,9 +432,62 @@ const error = ref('')
 const statusMessage = ref('')
 const jsonDepth = ref(3)
 const copyLabel = ref('Copy JSON')
+const chainPresetSeed = ref(1)
+
+const chainSteps = ref([
+  {
+    key: `chain-step-${Date.now()}-${chainPresetSeed.value}`,
+    moduleName: '',
+    moduleConfigText: '{}',
+    preMappingsText: '[]',
+    postMappingsText: '[]',
+    filterConditionsText: '[]'
+  }
+])
+const selectedChainPreset = ref('')
+const chainPresets = ref([
+  {
+    id: 'parser-chunker',
+    name: 'Parser → Chunker',
+    steps: [
+      { moduleHint: 'parser', moduleConfig: { enableTika: true } },
+      { moduleHint: 'chunker', moduleConfig: { chunkingMode: 'token', chunkSize: 512, chunkOverlap: 50 } }
+    ]
+  },
+  {
+    id: 'parser-chunker-embedder',
+    name: 'Parser → Chunker → Embedder',
+    steps: [
+      { moduleHint: 'parser', moduleConfig: { enableTika: true } },
+      { moduleHint: 'chunker', moduleConfig: { chunkingMode: 'token', chunkSize: 512, chunkOverlap: 50 } },
+      { moduleHint: 'embedder', moduleConfig: {} }
+    ]
+  },
+  {
+    id: 'chunker-embedder',
+    name: 'Chunker → Embedder',
+    steps: [
+      { moduleHint: 'chunker', moduleConfig: { chunkingMode: 'token', chunkSize: 512, chunkOverlap: 50 } },
+      { moduleHint: 'embedder', moduleConfig: {} }
+    ]
+  },
+  {
+    id: 'parser-chunker-sentence-embedder',
+    name: 'Parser → Sentence Chunker → Embedder',
+    steps: [
+      { moduleHint: 'parser', moduleConfig: { enableTika: true } },
+      { moduleHint: 'chunker', moduleConfig: { chunkingMode: 'sentence', chunkSize: 120, chunkOverlap: 0 } },
+      { moduleHint: 'embedder', moduleConfig: {} }
+    ]
+  }
+])
 
 const selectedSampleInfo = computed(() =>
   sampleDocuments.value.find((s) => s.id === selectedSampleId.value) || null
+)
+
+const chainSelectedSampleInfo = computed(() =>
+  sampleDocuments.value.find((s) => s.id === chainSelectedSampleId.value) || null
 )
 
 const canRun = computed(() => {
@@ -234,6 +505,30 @@ const canRun = computed(() => {
     return Boolean(selectedRepositoryNodeId.value)
   }
 
+  return false
+})
+
+const showUploadInput = computed(() => inputMode.value === 'upload')
+
+const canRunChain = computed(() => {
+  if (!chainSteps.value.length || chainRunning.value) {
+    return false
+  }
+
+  const hasAllModules = chainSteps.value.every((step) => Boolean(step.moduleName))
+  if (!hasAllModules) {
+    return false
+  }
+
+  if (chainInputMode.value === 'upload') {
+    return Boolean(chainSelectedFile.value) && Boolean(chainUploadBase64.value)
+  }
+  if (chainInputMode.value === 'sample') {
+    return Boolean(chainSelectedSampleId.value)
+  }
+  if (chainInputMode.value === 'repository') {
+    return Boolean(chainSelectedRepositoryNodeId.value)
+  }
   return false
 })
 
@@ -269,6 +564,58 @@ const copyResult = async () => {
     copyLabel.value = 'Copy failed'
     setTimeout(() => { copyLabel.value = 'Copy JSON' }, 2000)
   }
+}
+
+const copyChainResult = async () => {
+  try {
+    const text = JSON.stringify(chainResult.value, null, 2)
+    await navigator.clipboard.writeText(text)
+    chainCopyLabel.value = 'Copied!'
+    setTimeout(() => { chainCopyLabel.value = 'Copy chain JSON' }, 2000)
+  } catch (_e) {
+    chainCopyLabel.value = 'Copy failed'
+    setTimeout(() => { chainCopyLabel.value = 'Copy chain JSON' }, 2000)
+  }
+}
+
+const createChainStep = () => {
+  const key = `chain-step-${Date.now()}-${chainPresetSeed.value}`
+  chainPresetSeed.value += 1
+  return {
+    key,
+    moduleName: '',
+    moduleConfigText: '{}',
+    preMappingsText: '[]',
+    postMappingsText: '[]',
+    filterConditionsText: '[]'
+  }
+}
+
+const ensureChainModuleDefaults = (stepIndex) => {
+  const step = chainSteps.value[stepIndex]
+  if (!step || !step.moduleName) {
+    return
+  }
+  const target = targets.value.find((entry) => entry.moduleName === step.moduleName)
+  if (!target || !target.jsonConfigSchema) {
+    if (step.moduleConfigText === '') {
+      step.moduleConfigText = '{}'
+    }
+    return
+  }
+
+  let schema = null
+  try {
+    schema = JSON.parse(target.jsonConfigSchema)
+  } catch (_err) {
+    step.moduleConfigText = step.moduleConfigText || '{}'
+    return
+  }
+
+  const defaults = deriveDefaultConfigFromSchema(schema)
+  const mergedDefaults = ensureParserDefaults(defaults, target.parser)
+  const mergedText = Object.keys(mergedDefaults).length > 0 ? JSON.stringify(mergedDefaults, null, 2) : '{}'
+  step.moduleConfigText = mergedText
 }
 
 const deriveDefaultConfigFromSchema = (schema) => {
@@ -478,12 +825,127 @@ const onFileSelected = (event) => {
   }
 }
 
+const chainUploadBase64 = ref('')
+
+const onChainFileSelected = (event) => {
+  const file = event?.target?.files?.[0] || null
+  chainRunError.value = ''
+  chainSelectedFile.value = file
+  chainUploadBase64.value = ''
+  if (!file) {
+    return
+  }
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = typeof reader.result === 'string' ? reader.result : ''
+    chainUploadBase64.value = result.split(',').pop() || ''
+  }
+  reader.onerror = () => {
+    chainRunError.value = 'Failed to read chain upload file'
+    chainSelectedFile.value = null
+    chainUploadBase64.value = ''
+  }
+  reader.readAsDataURL(file)
+}
+
 const onRepositoryDocumentChanged = () => {
   if (!selectedRepositoryNodeId.value) {
     return
   }
   if (showUploadInput.value) {
     selectedFile.value = null
+  }
+}
+
+const addChainStep = () => {
+  chainSteps.value.push(createChainStep())
+  selectedChainPreset.value = ''
+}
+
+const removeChainStep = (index) => {
+  if (chainSteps.value.length <= 1) {
+    return
+  }
+  chainSteps.value = chainSteps.value.filter((_, i) => i !== index)
+}
+
+const moveChainStep = (index, direction) => {
+  const nextIndex = index + direction
+  if (nextIndex < 0 || nextIndex >= chainSteps.value.length) {
+    return
+  }
+  const working = [...chainSteps.value]
+  const [item] = working.splice(index, 1)
+  if (!item) {
+    return
+  }
+  working.splice(nextIndex, 0, item)
+  chainSteps.value = working
+}
+
+const onChainStepDragStart = (index) => {
+  chainDraggedIndex.value = index
+}
+
+const onChainStepDrop = (dropIndex) => {
+  const from = chainDraggedIndex.value
+  if (from < 0 || from === dropIndex) {
+    chainDraggedIndex.value = -1
+    return
+  }
+  const working = [...chainSteps.value]
+  const [item] = working.splice(from, 1)
+  if (!item) {
+    chainDraggedIndex.value = -1
+    return
+  }
+  working.splice(dropIndex, 0, item)
+  chainSteps.value = working
+  chainDraggedIndex.value = -1
+}
+
+const onChainModuleChanged = (index) => {
+  ensureChainModuleDefaults(index)
+}
+
+const applyChainPreset = () => {
+  const preset = chainPresets.value.find((candidate) => candidate.id === selectedChainPreset.value)
+  if (!preset) {
+    return
+  }
+
+  const next = []
+  preset.steps.forEach((stepHint) => {
+    const moduleHint = (stepHint.moduleHint || '').toLowerCase()
+    const target = targets.value.find((target) =>
+      (target.moduleName || '').toLowerCase().includes(moduleHint)
+    )
+    const moduleName = target?.moduleName || ''
+    const created = createChainStep()
+    created.moduleName = moduleName
+    const initialConfig = stepHint.moduleConfig && typeof stepHint.moduleConfig === 'object'
+      ? stepHint.moduleConfig
+      : {}
+
+    if (target?.jsonConfigSchema) {
+      try {
+        const schema = JSON.parse(target.jsonConfigSchema)
+        const defaults = deriveDefaultConfigFromSchema(schema)
+        const merged = { ...defaults, ...initialConfig }
+        created.moduleConfigText = JSON.stringify(ensureParserDefaults(merged, target.parser), null, 2)
+      } catch (_err) {
+        created.moduleConfigText = JSON.stringify(initialConfig, null, 2)
+      }
+    } else {
+      created.moduleConfigText = JSON.stringify(initialConfig, null, 2)
+    }
+
+    next.push(created)
+  })
+
+  if (next.length > 0) {
+    chainSteps.value = next
   }
 }
 
@@ -595,6 +1057,152 @@ const runTest = async () => {
   } finally {
     running.value = false
   }
+}
+
+const parseChainMappings = (rawValue, type) => {
+  if (!rawValue || !rawValue.trim()) {
+    return []
+  }
+  let parsed = null
+  try {
+    parsed = JSON.parse(rawValue)
+  } catch (_err) {
+    throw new Error(`Invalid ${type} JSON array`)
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Invalid ${type} JSON array`)
+  }
+  return parsed
+}
+
+const parseChainConfig = (rawText, stepIndex) => {
+  if (!rawText || !rawText.trim()) {
+    return {}
+  }
+  let value = null
+  try {
+    value = JSON.parse(rawText)
+  } catch (_err) {
+    throw new Error(`Invalid JSON in step ${stepIndex + 1} module_config`)
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Invalid JSON object in step ${stepIndex + 1} module_config`)
+  }
+  return value
+}
+
+const runChain = async () => {
+  if (!canRunChain.value) {
+    return
+  }
+
+  chainRunning.value = true
+  chainRunError.value = ''
+  chainResult.value = null
+  chainOutputExpanded.value = {}
+
+  try {
+    const steps = chainSteps.value.map((step, index) => {
+      const moduleConfig = parseChainConfig(step.moduleConfigText || '{}', index)
+      const preMappings = parseChainMappings(step.preMappingsText || '[]', `step ${index + 1} pre_mappings`)
+      const postMappings = parseChainMappings(step.postMappingsText || '[]', `step ${index + 1} post_mappings`)
+      const filterConditions = parseChainMappings(step.filterConditionsText || '[]', `step ${index + 1} filter_conditions`)
+
+      return {
+        moduleName: step.moduleName,
+        moduleConfig,
+        preMappings,
+        postMappings,
+        filterConditions
+      }
+    })
+
+    const request = {
+      inputSource: chainInputMode.value,
+      steps,
+      includeFullOutput: chainIncludeFullOutput.value,
+      accountId: ''
+    }
+
+    if (chainInputMode.value === 'sample') {
+      request.sampleId = chainSelectedSampleId.value
+      request.sampleName = chainSelectedSampleInfo.value?.fileName || chainSelectedSampleInfo.value?.name || ''
+    } else if (chainInputMode.value === 'upload') {
+      if (!chainSelectedFile.value || !chainUploadBase64.value) {
+        throw new Error('Upload requires a file')
+      }
+      request.upload = {
+        filename: chainSelectedFile.value.name || 'upload.bin',
+        mimeType: chainSelectedFile.value.type || 'application/octet-stream',
+        base64Data: chainUploadBase64.value
+      }
+    } else if (chainInputMode.value === 'repository') {
+      const doc = repositoryDocuments.value.find((item) => item.nodeId === chainSelectedRepositoryNodeId.value)
+      if (!doc) {
+        throw new Error('Select a repository document first')
+      }
+      request.repositoryNodeId = doc.nodeId
+      request.repositoryDrive = doc.drive || ''
+      request.repositoryHydrateBlobFromStorage = false
+    }
+
+    const response = await fetch(`${API_BASE}/run/chain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    })
+
+    const responseText = await response.text()
+    let parsed = null
+    try {
+      parsed = responseText ? JSON.parse(responseText) : null
+    } catch (_err) {
+      parsed = { message: responseText || 'No response body' }
+    }
+
+    if (!response.ok) {
+      const errMsg = parsed?.message || parsed?.error || responseText || `HTTP ${response.status}`
+      throw new Error(errMsg)
+    }
+
+    chainResult.value = parsed
+  } catch (errorObj) {
+    chainRunError.value = errorObj?.message || 'Chain run failed'
+  } finally {
+    chainRunning.value = false
+  }
+}
+
+const clearChainResult = () => {
+  chainResult.value = null
+  chainRunError.value = ''
+  chainOutputExpanded.value = {}
+}
+
+const getChainSteps = () => (chainResult.value?.steps || chainResult.value?.chain_steps || [])
+
+const toggleChainStepOutput = (stepIndex) => {
+  chainOutputExpanded.value = {
+    ...chainOutputExpanded.value,
+    [stepIndex]: !chainOutputExpanded.value[stepIndex]
+  }
+}
+
+const saveChainOutput = (stepIndex) => {
+  const steps = getChainSteps()
+  if (!steps?.[stepIndex]) {
+    return
+  }
+  const step = steps[stepIndex]
+  const safeName = (step.moduleName || step.module_name || `step-${stepIndex + 1}`).replace(/[^a-z0-9-_]+/gi, '-')
+  const filename = `fixture-${safeName}-${stepIndex + 1}.json`
+  const data = JSON.stringify(step.output_doc || step.outputDoc || step.output_doc_summary || step.outputDocSummary || {}, null, 2)
+  const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 const clearRunResult = () => {
@@ -710,6 +1318,12 @@ button:disabled {
   margin-bottom: 10px;
 }
 
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .meta {
   display: flex;
   gap: 16px;
@@ -787,6 +1401,74 @@ button:disabled {
 .btn-small {
   font-size: 12px;
   padding: 4px 10px;
+}
+
+.chain-step {
+  border: 1px dashed #c5c5c5;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #fafcff;
+}
+
+.chain-step-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chain-mappings {
+  margin-top: 10px;
+}
+
+.chain-mappings label {
+  display: block;
+  margin: 8px 0 4px;
+}
+
+.chain-step h3 {
+  margin: 0 0 10px;
+}
+
+.chain-steps-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chain-step-detail {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e4e4e4;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.step-log-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.step-log-grid ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.step-summary {
+  margin-top: 12px;
+}
+
+.status-success {
+  color: #0b8043;
+  font-weight: 600;
+}
+
+.status-error {
+  color: #b00020;
+  font-weight: 600;
 }
 
 .result-summary {
