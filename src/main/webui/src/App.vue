@@ -506,6 +506,70 @@ const chainPresets = ref([
       { moduleHint: 'chunker', moduleConfig: { chunkingMode: 'sentence', chunkSize: 120, chunkOverlap: 0 } },
       { moduleHint: 'embedder', moduleConfig: {} }
     ]
+  },
+  {
+    id: 'parser-semantic-manager',
+    name: 'Parser → Semantic Manager (recommended)',
+    steps: [
+      { moduleHint: 'parser', moduleConfig: { enableTika: true } },
+      {
+        moduleHint: 'semantic-manager',
+        moduleConfig: { index_name: 'test-index' },
+        preMappings: [
+          {
+            mappingType: 'MAPPING_TYPE_DIRECT',
+            sourceFieldPaths: ['__literal__'],
+            targetFieldPaths: ['search_metadata.vector_set_directives'],
+            literalValue: {
+              directives: [{
+                sourceLabel: 'body',
+                celSelector: 'document.search_metadata.body',
+                chunkerConfigs: [{
+                  configId: 'token_512',
+                  config: { algorithm: 'token', sourceField: 'body', chunkSize: 512, chunkOverlap: 50 }
+                }],
+                embedderConfigs: [{
+                  configId: 'minilm_v2',
+                  config: { embedding_models: ['ALL_MINILM_L6_V2'], check_chunks: true }
+                }]
+              }]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'parser-semantic-manager-multi',
+    name: 'Parser → Semantic Manager (2 chunkers × 2 embedders)',
+    steps: [
+      { moduleHint: 'parser', moduleConfig: { enableTika: true } },
+      {
+        moduleHint: 'semantic-manager',
+        moduleConfig: { index_name: 'test-index' },
+        preMappings: [
+          {
+            mappingType: 'MAPPING_TYPE_DIRECT',
+            sourceFieldPaths: ['__literal__'],
+            targetFieldPaths: ['search_metadata.vector_set_directives'],
+            literalValue: {
+              directives: [{
+                sourceLabel: 'body',
+                celSelector: 'document.search_metadata.body',
+                chunkerConfigs: [
+                  { configId: 'token_512', config: { algorithm: 'token', sourceField: 'body', chunkSize: 512, chunkOverlap: 50 } },
+                  { configId: 'sentence_v1', config: { algorithm: 'sentence', sourceField: 'body', chunkSize: 120, chunkOverlap: 0 } }
+                ],
+                embedderConfigs: [
+                  { configId: 'minilm_v2', config: { embedding_models: ['ALL_MINILM_L6_V2'], check_chunks: true } },
+                  { configId: 'mpnet_v2', config: { embedding_models: ['ALL_MPNET_BASE_V2'], check_chunks: true } }
+                ]
+              }]
+            }
+          }
+        ]
+      }
+    ]
   }
 ])
 
@@ -996,6 +1060,17 @@ const applyChainPreset = () => {
       }
     } else {
       created.moduleConfigText = JSON.stringify(initialConfig, null, 2)
+    }
+
+    // Carry pre/post mappings and filter conditions from preset
+    if (stepHint.preMappings && Array.isArray(stepHint.preMappings)) {
+      created.preMappingsText = JSON.stringify(stepHint.preMappings, null, 2)
+    }
+    if (stepHint.postMappings && Array.isArray(stepHint.postMappings)) {
+      created.postMappingsText = JSON.stringify(stepHint.postMappings, null, 2)
+    }
+    if (stepHint.filterConditions && Array.isArray(stepHint.filterConditions)) {
+      created.filterConditionsText = JSON.stringify(stepHint.filterConditions, null, 2)
     }
 
     next.push(created)
