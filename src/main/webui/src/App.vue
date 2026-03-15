@@ -605,23 +605,30 @@ const copyChainResult = async () => {
   }
 }
 
+const BODY_PREVIEW_CHARS = 500
+const LONG_TEXT_FIELDS = new Set(['body', 'textContent', 'text_content', 'sourceText', 'source_text'])
+
 /**
- * Recursively compact vector arrays into inline strings for display.
- * Turns [0.123, -0.456, ...] (384 entries) into "float[384]: [0.123, -0.456, ...]"
+ * Recursively compact large data for display:
+ * - Vector arrays (float[384]) become single-line preview strings
+ * - Long text fields (body, textContent) are truncated with char count
  */
-const compactVectors = (obj) => {
+const compactVectors = (obj, parentKey = '') => {
   if (obj === null || obj === undefined) return obj
   if (Array.isArray(obj)) {
     if (obj.length > 10 && obj.every(v => typeof v === 'number')) {
       const preview = obj.slice(0, 5).map(v => v.toFixed(6)).join(', ')
       return `float[${obj.length}]: [${preview}, ...]`
     }
-    return obj.map(compactVectors)
+    return obj.map(item => compactVectors(item, ''))
+  }
+  if (typeof obj === 'string' && LONG_TEXT_FIELDS.has(parentKey) && obj.length > BODY_PREVIEW_CHARS) {
+    return obj.substring(0, BODY_PREVIEW_CHARS) + `... (${obj.length.toLocaleString()} chars total)`
   }
   if (typeof obj === 'object') {
     const result = {}
     for (const [key, value] of Object.entries(obj)) {
-      result[key] = compactVectors(value)
+      result[key] = compactVectors(value, key)
     }
     return result
   }
