@@ -514,28 +514,21 @@ const chainPresets = ref([
       { moduleHint: 'parser', moduleConfig: { enableTika: true } },
       {
         moduleHint: 'semantic-manager',
-        moduleConfig: { index_name: 'test-index' },
-        preMappings: [
-          {
-            mappingType: 'MAPPING_TYPE_DIRECT',
-            sourceFieldPaths: ['__literal__'],
-            targetFieldPaths: ['search_metadata.vector_set_directives'],
-            literalValue: {
-              directives: [{
-                sourceLabel: 'body',
-                celSelector: 'document.search_metadata.body',
-                chunkerConfigs: [{
-                  configId: 'token_512',
-                  config: { algorithm: 'token', sourceField: 'body', chunkSize: 512, chunkOverlap: 50 }
-                }],
-                embedderConfigs: [{
-                  configId: 'minilm_v2',
-                  config: { embedding_models: ['ALL_MINILM_L6_V2'], check_chunks: true }
-                }]
-              }]
-            }
-          }
-        ]
+        moduleConfig: {
+          index_name: 'test-index',
+          directives: [{
+            source_label: 'body',
+            cel_selector: 'document.search_metadata.body',
+            chunker_configs: [{
+              config_id: 'token_512',
+              config: { algorithm: 'token', sourceField: 'body', chunkSize: 512, chunkOverlap: 50 }
+            }],
+            embedder_configs: [{
+              config_id: 'minilm_v2',
+              config: { embedding_models: ['ALL_MINILM_L6_V2'], check_chunks: true }
+            }]
+          }]
+        }
       }
     ]
   },
@@ -546,28 +539,21 @@ const chainPresets = ref([
       { moduleHint: 'parser', moduleConfig: { enableTika: true } },
       {
         moduleHint: 'semantic-manager',
-        moduleConfig: { index_name: 'test-index' },
-        preMappings: [
-          {
-            mappingType: 'MAPPING_TYPE_DIRECT',
-            sourceFieldPaths: ['__literal__'],
-            targetFieldPaths: ['search_metadata.vector_set_directives'],
-            literalValue: {
-              directives: [{
-                sourceLabel: 'body',
-                celSelector: 'document.search_metadata.body',
-                chunkerConfigs: [
-                  { configId: 'token_512', config: { algorithm: 'token', sourceField: 'body', chunkSize: 512, chunkOverlap: 50 } },
-                  { configId: 'sentence_v1', config: { algorithm: 'sentence', sourceField: 'body', chunkSize: 120, chunkOverlap: 0 } }
-                ],
-                embedderConfigs: [
-                  { configId: 'minilm_v2', config: { embedding_models: ['ALL_MINILM_L6_V2'], check_chunks: true } },
-                  { configId: 'mpnet_v2', config: { embedding_models: ['ALL_MPNET_BASE_V2'], check_chunks: true } }
-                ]
-              }]
-            }
-          }
-        ]
+        moduleConfig: {
+          index_name: 'test-index',
+          directives: [{
+            source_label: 'body',
+            cel_selector: 'document.search_metadata.body',
+            chunker_configs: [
+              { config_id: 'token_512', config: { algorithm: 'token', sourceField: 'body', chunkSize: 512, chunkOverlap: 50 } },
+              { config_id: 'sentence_v1', config: { algorithm: 'sentence', sourceField: 'body', chunkSize: 120, chunkOverlap: 0 } }
+            ],
+            embedder_configs: [
+              { config_id: 'minilm_v2', config: { embedding_models: ['ALL_MINILM_L6_V2'], check_chunks: true } },
+              { config_id: 'mpnet_v2', config: { embedding_models: ['ALL_MPNET_BASE_V2'], check_chunks: true } }
+            ]
+          }]
+        }
       }
     ]
   }
