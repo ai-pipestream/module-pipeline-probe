@@ -341,19 +341,11 @@
               ({{ step.durationMs ?? step.duration_ms }}ms)
             </summary>
             <div class="chain-step-detail">
-              <div class="step-log-grid">
-                <div>
-                  <h4>Processor logs</h4>
-                  <ul>
-                    <li v-for="(log, logIndex) in (step.processorLogs || step.processor_logs || [])" :key="`step-${step.stepIndex ?? step.step_index}-processor-${logIndex}`">{{ log }}</li>
-                  </ul>
-                </div>
-                <div>
-                  <h4>Engine logs</h4>
-                  <ul>
-                    <li v-for="(log, logIndex) in (step.engineLogs || step.engine_logs || [])" :key="`step-${step.stepIndex ?? step.step_index}-engine-${logIndex}`">{{ log }}</li>
-                  </ul>
-                </div>
+              <div>
+                <h4>Processing audit trail</h4>
+                <ul>
+                  <li v-for="(log, logIndex) in combineStepLogs(step)" :key="`step-${step.stepIndex ?? step.step_index}-log-${logIndex}`">{{ log }}</li>
+                </ul>
               </div>
               <div class="step-summary">
                 <strong>Output summary:</strong>
@@ -684,6 +676,17 @@ const compactVectors = (obj, parentKey = '') => {
     return result
   }
   return obj
+}
+
+const combineStepLogs = (step) => {
+  const processor = step.processorLogs || step.processor_logs || []
+  const engine = step.engineLogs || step.engine_logs || []
+  // Engine logs already contain module processor_logs (merged by engine).
+  // If processor logs exist separately, show them first, then engine logs.
+  if (processor.length > 0) {
+    return [...processor, ...engine]
+  }
+  return engine
 }
 
 const createChainStep = () => {
