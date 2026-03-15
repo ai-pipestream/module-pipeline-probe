@@ -44,6 +44,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.Value;
+import com.google.protobuf.TypeRegistry;
 import com.google.protobuf.util.JsonFormat;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Multi;
@@ -75,6 +76,9 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
 
     @Inject
     DynamicGrpcClientFactory grpcClientFactory;
+
+    @Inject
+    TypeRegistry typeRegistry;
 
     @ConfigProperty(name = "module.testing.sidecar.platform-registration-service", defaultValue = "platform-registration")
     String platformRegistrationServiceName;
@@ -680,7 +684,10 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
             return null;
         }
         try {
-            String json = JsonFormat.printer().omittingInsignificantWhitespace().print(outputDocument);
+            String json = JsonFormat.printer()
+                    .usingTypeRegistry(typeRegistry)
+                    .omittingInsignificantWhitespace()
+                    .print(outputDocument);
             return objectMapper.readValue(json, Map.class);
         } catch (InvalidProtocolBufferException e) {
             return Map.of("error", "Unable to serialize output_doc: " + e.getMessage());
