@@ -1,5 +1,7 @@
 package ai.pipestream.module.pipelineprobe;
 
+import ai.pipestream.data.v1.Blob;
+import ai.pipestream.data.v1.BlobBag;
 import ai.pipestream.testing.harness.v1.RepositoryInput;
 import ai.pipestream.testing.harness.v1.RunModuleTestRequest;
 import ai.pipestream.testing.harness.v1.ServiceContext;
@@ -35,6 +37,7 @@ import org.jboss.resteasy.reactive.multipart.FileUpload;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
@@ -158,6 +161,20 @@ public class ModuleTestingSidecarResource {
                 .map(this::protobufToJsonResponse);
     }
 
+    @POST
+    @Path("/run/chain")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Uni<Response> runChain(RunChainRequest request) {
+        return resolveChainInputDocument(request)
+                .flatMap(inputDocument -> testingService.runChainTest(
+                        inputDocument,
+                        request.steps(),
+                        request.includeFullOutput(),
+                        resolveText(request.accountId(), ""))
+                )
+                .map(chainRunResponse -> Response.ok(chainRunResponse).build());
+    }
+
     private RunModuleTestRequest buildRunRequestFromRepositoryRequest(RunRepositoryRequest request) {
         if (request == null || request.moduleName() == null || request.moduleName().isBlank()) {
             throw new IllegalArgumentException("moduleName is required");
@@ -256,6 +273,67 @@ public class ModuleTestingSidecarResource {
                 .build();
     }
 
+    private Uni<PipeDoc> resolveChainInputDocument(RunChainRequest request) {
+        if (request == null) {
+            return Uni.createFrom().failure(new IllegalArgumentException("request is required"));
+        }
+        String inputSource = resolveText(request.inputSource(), "sample").toLowerCase();
+        return switch (inputSource) {
+            case "sample" -> resolveChainSampleDocument(request);
+            case "upload" -> resolveChainUploadDocument(request);
+            case "repository" -> resolveChainRepositoryDocument(request);
+            default -> Uni.createFrom().failure(new IllegalArgumentException(
+                    "unsupported input_source: " + request.inputSource()
+            ));
+        };
+    }
+
+    private Uni<PipeDoc> resolveChainSampleDocument(RunChainRequest request) {
+        String sampleId = resolveText(request.sampleId(), request.sampleName());
+        if (sampleId == null || sampleId.isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("sampleId is required when input_source=sample"));
+        }
+        SampleDocument sample = resolveSample(sampleId);
+        byte[] fileBytes = loadSampleBytes(sample);
+        return Uni.createFrom().item(() -> buildPipeDocFromSample(sample, fileBytes));
+    }
+
+    private Uni<PipeDoc> resolveChainUploadDocument(RunChainRequest request) {
+        RunChainUpload upload = request.upload();
+        if (upload == null) {
+            return Uni.createFrom().failure(new IllegalArgumentException("upload is required when input_source=upload"));
+        }
+        if (upload.filename() == null || upload.filename().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("upload.filename is required"));
+        }
+        if (upload.mimeType() == null || upload.mimeType().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("upload.mimeType is required"));
+        }
+        if (upload.base64Data() == null || upload.base64Data().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("upload.base64Data is required"));
+        }
+        byte[] fileBytes;
+        try {
+            fileBytes = Base64.getDecoder().decode(upload.base64Data());
+        } catch (IllegalArgumentException e) {
+            return Uni.createFrom().failure(new IllegalArgumentException("upload.base64Data must be valid base64", e));
+        }
+        return Uni.createFrom().item(() -> buildPipeDocFromUploadData(upload.filename(), upload.mimeType(), fileBytes));
+    }
+
+    private Uni<PipeDoc> resolveChainRepositoryDocument(RunChainRequest request) {
+        if (request.repositoryNodeId() == null || request.repositoryNodeId().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("repository_node_id is required when input_source=repository"));
+        }
+        return testingService.loadDocumentForChain(
+                RepositoryInput.newBuilder()
+                        .setRepositoryNodeId(request.repositoryNodeId())
+                        .setDrive(resolveText(request.repositoryDrive(), ""))
+                        .setHydrateBlobFromStorage(request.repositoryHydrateBlobFromStorage())
+                        .build()
+        );
+    }
+
     private Uni<ai.pipestream.testing.harness.v1.RunModuleTestResponse> runSampleAsPipeDoc(RunSampleRequest request) {
         if (request == null || request.moduleName() == null || request.moduleName().isBlank()) {
             throw new IllegalArgumentException("moduleName is required");
@@ -311,16 +389,39 @@ public class ModuleTestingSidecarResource {
     }
 
     private PipeDoc buildPipeDocFromSample(SampleDocument sample, byte[] fileBytes) {
-        SearchMetadata searchMetadata = SearchMetadata.newBuilder()
-                .setTitle(sample.getTitle())
-                .setBody(new String(fileBytes, StandardCharsets.UTF_8))
-                .setSourceMimeType(sample.getMimeType())
+        return buildPipeDocFromSampleOrBinary(sample.getTitle(), sample.getMimeType(), sample.getFileName(), fileBytes);
+    }
+
+    private PipeDoc buildPipeDocFromSampleOrBinary(String title, String mimeType, String fileName, byte[] fileBytes) {
+        SearchMetadata.Builder metadataBuilder = SearchMetadata.newBuilder()
+                .setTitle(resolveText(title, "test-sample"))
+                .setSourceMimeType(resolveText(mimeType, "application/octet-stream"));
+
+        if (isTextMimeType(metadataBuilder.getSourceMimeType())) {
+            metadataBuilder.setBody(new String(fileBytes, StandardCharsets.UTF_8));
+        }
+
+        Blob blob = Blob.newBuilder()
+                .setBlobId(UUID.randomUUID().toString())
+                .setMimeType(resolveText(mimeType, "application/octet-stream"))
+                .setFilename(fileName == null || fileName.isBlank() ? "sample.bin" : fileName)
+                .setSizeBytes(fileBytes.length)
+                .setData(ByteString.copyFrom(fileBytes))
                 .build();
 
         return PipeDoc.newBuilder()
                 .setDocId(UUID.randomUUID().toString())
-                .setSearchMetadata(searchMetadata)
+                .setSearchMetadata(metadataBuilder.build())
+                .setBlobBag(BlobBag.newBuilder().setBlob(blob))
                 .build();
+    }
+
+    private PipeDoc buildPipeDocFromUploadData(String fileName, String mimeType, byte[] fileBytes) {
+        return buildPipeDocFromSampleOrBinary(fileName, mimeType, fileName, fileBytes);
+    }
+
+    private boolean isTextMimeType(String mimeType) {
+        return mimeType != null && mimeType.toLowerCase().startsWith("text/");
     }
 
     private ServiceContext buildContext(
@@ -447,6 +548,27 @@ public class ModuleTestingSidecarResource {
             String streamId,
             long currentHopNumber,
             Map<String, String> contextParams
+    ) {
+    }
+
+    public record RunChainUpload(
+            String filename,
+            String mimeType,
+            String base64Data
+    ) {
+    }
+
+    public record RunChainRequest(
+            String inputSource,
+            String sampleId,
+            String sampleName,
+            String repositoryNodeId,
+            String repositoryDrive,
+            boolean repositoryHydrateBlobFromStorage,
+            RunChainUpload upload,
+            java.util.List<ModuleTestingSidecarModels.ChainStepInput> steps,
+            boolean includeFullOutput,
+            String accountId
     ) {
     }
 }

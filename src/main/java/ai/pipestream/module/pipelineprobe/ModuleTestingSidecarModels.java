@@ -63,4 +63,35 @@ public final class ModuleTestingSidecarModels {
             java.util.List<String> errors
     ) {
     }
+
+    public record ChainStepInput(
+            String moduleName,
+            java.util.Map<String, Object> moduleConfig,
+            java.util.List<java.util.Map<String, Object>> preMappings,
+            java.util.List<java.util.Map<String, Object>> postMappings,
+            java.util.List<String> filterConditions
+    ) {
+    }
+
+    public record ChainStepResult(
+            int stepIndex,
+            String moduleName,
+            boolean success,
+            long durationMs,
+            java.util.List<String> processorLogs,
+            java.util.List<String> engineLogs,
+            java.util.Map<String, Object> outputDocSummary,
+            java.util.Map<String, Object> outputDoc
+    ) {
+    }
+
+    public record ChainRunResponse(
+            boolean success,
+            int failedAtStep,
+            long totalDurationMs,
+            String message,
+            java.util.List<ChainStepResult> steps
+    ) {
+    }
+
 }

@@ -9,9 +9,17 @@ import ai.pipestream.data.module.v1.ProcessDataResponse;
 import ai.pipestream.data.module.v1.ServiceMetadata;
 import ai.pipestream.data.v1.Blob;
 import ai.pipestream.data.v1.BlobBag;
+import ai.pipestream.data.v1.PipeStream;
+import ai.pipestream.data.v1.ProcessingMapping;
+import ai.pipestream.data.v1.SemanticProcessingResult;
 import ai.pipestream.data.v1.ProcessConfiguration;
+import ai.pipestream.data.v1.StreamMetadata;
 import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.config.v1.GraphNode;
 import ai.pipestream.data.v1.SearchMetadata;
+import ai.pipestream.engine.v1.MutinyEngineV1ServiceGrpc;
+import ai.pipestream.engine.v1.ProcessNodeRequest;
+import ai.pipestream.engine.v1.ProcessNodeResponse;
 import ai.pipestream.platform.registration.v1.GetModuleResponse;
 import ai.pipestream.platform.registration.v1.ListPlatformModulesRequest;
 import ai.pipestream.platform.registration.v1.ListPlatformModulesResponse;
@@ -31,9 +39,12 @@ import ai.pipestream.testing.harness.v1.RunModuleTestResponse;
 import ai.pipestream.testing.harness.v1.ServiceContext;
 import ai.pipestream.testing.harness.v1.UploadInput;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.Value;
+import com.google.protobuf.util.JsonFormat;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
@@ -42,8 +53,12 @@ import jakarta.inject.Singleton;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -72,6 +87,14 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
 
     @ConfigProperty(name = "module.testing.sidecar.default-step-name", defaultValue = "module-testing-step")
     String defaultStepName;
+
+    @ConfigProperty(name = "module.testing.sidecar.engine-service", defaultValue = "pipestream-engine")
+    String engineServiceName;
+
+    private static final int MAX_CHAIN_STEPS = 10;
+    private static final Duration CHAIN_TEST_TIMEOUT = Duration.ofMinutes(5);
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public Uni<RunModuleTestResponse> runModuleTest(RunModuleTestRequest request) {
@@ -128,6 +151,69 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
             );
     }
 
+    public Uni<ModuleTestingSidecarModels.ChainRunResponse> runChainTest(
+            PipeDoc inputDocument,
+            List<ModuleTestingSidecarModels.ChainStepInput> steps,
+            boolean includeFullOutput,
+            String accountId
+    ) {
+        if (inputDocument == null) {
+            return Uni.createFrom().failure(new IllegalArgumentException("input document is required"));
+        }
+        if (steps == null || steps.isEmpty()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("at least one chain step is required"));
+        }
+        if (steps.size() > MAX_CHAIN_STEPS) {
+            return Uni.createFrom().failure(new IllegalArgumentException(
+                    "too many steps, max supported is " + MAX_CHAIN_STEPS
+            ));
+        }
+
+        long startedAtMs = System.currentTimeMillis();
+        final String streamId = "chain-test-" + UUID.randomUUID();
+        List<ModuleTestingSidecarModels.ChainStepInput> orderedSteps = List.copyOf(steps);
+
+        ChainRunState chainState = new ChainRunState(streamId, inputDocument, includeFullOutput);
+
+        Uni<ChainRunState> chain = Uni.createFrom().item(chainState);
+        for (int i = 0; i < orderedSteps.size(); i++) {
+            final int stepIndex = i;
+            final ModuleTestingSidecarModels.ChainStepInput step = orderedSteps.get(i);
+            chain = chain.chain(state -> executeChainStep(state, stepIndex, step, streamId));
+        }
+
+        return chain
+                .map(finalState -> buildChainRunResponse(
+                        finalState,
+                        true,
+                        -1,
+                        startedAtMs,
+                        orderedSteps.size()
+                ))
+                .onFailure(ChainStepExecutionException.class)
+                .recoverWithItem(ex -> {
+                    ChainStepExecutionException failure = (ChainStepExecutionException) ex;
+                    return buildChainRunResponse(
+                            failure.state(),
+                            false,
+                            failure.failedStepIndex(),
+                            startedAtMs,
+                            orderedSteps.size()
+                    );
+                })
+                .onFailure().recoverWithItem(failure ->
+                        new ModuleTestingSidecarModels.ChainRunResponse(
+                                false,
+                                -1,
+                                Math.max(1L, System.currentTimeMillis() - startedAtMs),
+                                resolveText(failure.getMessage(), "chain test failed"),
+                                List.of()
+                        )
+                )
+                .ifNoItem().after(CHAIN_TEST_TIMEOUT).failWith(new IllegalStateException(
+                        "chain test exceeded timeout of " + CHAIN_TEST_TIMEOUT.toMinutes() + " minutes"));
+    }
+
     public Uni<Boolean> isParserModule(String moduleName) {
         if (moduleName == null || moduleName.isBlank()) {
             return Uni.createFrom().failure(new IllegalArgumentException("moduleName is required"));
@@ -181,6 +267,10 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
             .map(this::toRepositoryDocumentsPage)
             .onFailure().recoverWithItem(failure ->
                 new ModuleTestingSidecarModels.RepositoryDocumentsPage(List.of(), "", 0));
+    }
+
+    public Uni<PipeDoc> loadDocumentForChain(RepositoryInput repositoryInput) {
+        return loadDocumentFromRepository(repositoryInput);
     }
 
     public Uni<List<GetModuleResponse>> listModules() {
@@ -338,6 +428,299 @@ public class ModuleTestingSidecarServiceImpl implements ModuleTestingSidecarServ
 
         return grpcClientFactory.getClient(moduleName, MutinyPipeStepProcessorServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.processData(processDataRequest));
+    }
+
+    private Uni<ChainRunState> executeChainStep(
+            ChainRunState state,
+            int stepIndex,
+            ModuleTestingSidecarModels.ChainStepInput step,
+            String streamId
+    ) {
+        if (step == null) {
+            return Uni.createFrom().failure(new IllegalArgumentException("chain step is required"));
+        }
+        if (step.moduleName() == null || step.moduleName().isBlank()) {
+            return Uni.createFrom().failure(new IllegalArgumentException("chain step module_name is required"));
+        }
+
+        String moduleName = step.moduleName();
+        long stepStartedMs = System.currentTimeMillis();
+        GraphNode nodeOverride;
+        try {
+            nodeOverride = buildGraphNodeOverride(stepIndex, step);
+        } catch (Throwable throwable) {
+            return Uni.createFrom().failure(new ChainStepExecutionException(state, stepIndex, throwable.getMessage(), throwable));
+        }
+
+        ProcessNodeRequest request = ProcessNodeRequest.newBuilder()
+                .setStream(buildChainStream(state.currentDoc, state.currentDoc.getSearchMetadata().getTitle(), streamId, stepIndex))
+                .setNodeOverride(nodeOverride)
+                .build();
+
+        return grpcClientFactory.getClient(engineServiceName, MutinyEngineV1ServiceGrpc::newMutinyStub)
+                .flatMap(stub -> stub.processNode(request))
+                .map(response -> {
+                    long stepDurationMs = Math.max(1L, System.currentTimeMillis() - stepStartedMs);
+                    List<String> engineLogs = extractEngineLogs(response);
+                    PipeDoc outputDocument = response.hasUpdatedStream() && response.getUpdatedStream().hasDocument()
+                            ? response.getUpdatedStream().getDocument()
+                            : state.currentDoc;
+                    // Extract module audit trail from the ProcessDataResponse embedded in the stream
+                    // The engine stores the module's processor_logs in StepExecutionRecord, but we
+                    // also want to check if the output doc itself carries semantic result info
+                    List<String> processorLogs = extractModuleProcessorLogs(response);
+
+                    state.results.add(buildChainStepResult(
+                            stepIndex,
+                            moduleName,
+                            response.getSuccess(),
+                            stepDurationMs,
+                            processorLogs,
+                            engineLogs,
+                            outputDocument,
+                            state.includeFullOutput
+                    ));
+                    if (!response.getSuccess()) {
+                        throw new ChainStepExecutionException(
+                                state,
+                                stepIndex,
+                                resolveText(response.getMessage(), "chain step execution failed")
+                        );
+                    }
+                    state.currentDoc = outputDocument;
+                    return state;
+                })
+                .onFailure().transform(throwable -> {
+                    if (throwable instanceof ChainStepExecutionException) {
+                        return throwable;
+                    }
+                    return new ChainStepExecutionException(state, stepIndex, throwable.getMessage(), throwable);
+                });
+    }
+
+    private GraphNode buildGraphNodeOverride(int stepIndex, ModuleTestingSidecarModels.ChainStepInput step) {
+        String nodeId = "test-" + step.moduleName() + "-" + stepIndex;
+        GraphNode.Builder builder = GraphNode.newBuilder()
+                .setNodeId(nodeId)
+                .setModuleId(step.moduleName())
+                .setCustomConfig(buildProcessConfig(step.moduleConfig()));
+
+        if (step.preMappings() != null) {
+            builder.addAllPreMappings(parseMappings(step.preMappings()));
+        }
+        if (step.postMappings() != null) {
+            builder.addAllPostMappings(parseMappings(step.postMappings()));
+        }
+        if (step.filterConditions() != null) {
+            builder.addAllFilterConditions(step.filterConditions());
+        }
+        return builder.build();
+    }
+
+    private ProcessConfiguration buildProcessConfig(Map<String, Object> moduleConfig) {
+        try {
+            Struct resolvedModuleConfig = parseStructFromObject(moduleConfig);
+            return ProcessConfiguration.newBuilder().setJsonConfig(resolvedModuleConfig).build();
+        } catch (RuntimeException runtimeException) {
+            throw new IllegalArgumentException("Invalid module_config for chain step: " + runtimeException.getMessage(), runtimeException);
+        }
+    }
+
+    private PipeStream buildChainStream(PipeDoc document, String streamTitle, String streamId, int stepIndex) {
+        String stepNodeId = "test-" + resolveText(streamTitle, "doc") + "-" + stepIndex;
+        StreamMetadata metadata = StreamMetadata.newBuilder()
+                .setIsTest(true)
+                .setDryRun(true)
+                .putAllContextParams(Map.of("chainStep", String.valueOf(stepIndex)))
+                .setAccountId("unknown")
+                .build();
+
+        return PipeStream.newBuilder()
+                .setStreamId(streamId)
+                .setDocument(document)
+                .setCurrentNodeId(stepNodeId)
+                .setMetadata(metadata.toBuilder().setIsTest(true).setDryRun(true).build())
+                .build();
+    }
+
+    private List<String> extractEngineLogs(ProcessNodeResponse response) {
+        if (response == null || !response.hasUpdatedStream()) {
+            return List.of();
+        }
+        return response.getUpdatedStream().getMetadata().getHistoryList().stream()
+                .flatMap(record -> record.getProcessorLogsList().stream())
+                .toList();
+    }
+
+    /**
+     * Extract module-level processor logs from the engine response.
+     * <p>
+     * The engine's ProcessNodeResponse carries the full StepExecutionRecord history
+     * which includes both engine logs and module processor_logs. For now, module
+     * logs are included in the engine history. Once the engine preserves them
+     * separately, this method will extract them independently.
+     */
+    private List<String> extractModuleProcessorLogs(ProcessNodeResponse response) {
+        // TODO: Engine currently doesn't separate module processor_logs from engine logs
+        // in StepExecutionRecord. When it does, extract them here. For now, the engine
+        // logs contain both — the module audit trail is visible there.
+        return List.of();
+    }
+
+    private ModuleTestingSidecarModels.ChainStepResult buildChainStepResult(
+            int stepIndex,
+            String moduleName,
+            boolean success,
+            long durationMs,
+            List<String> processorLogs,
+            List<String> engineLogs,
+            PipeDoc outputDocument,
+            boolean includeFullOutput
+    ) {
+        Map<String, Object> outputSummary = buildOutputDocSummary(outputDocument);
+        Map<String, Object> outputDoc = includeFullOutput
+                ? toMap(outputDocument)
+                : null;
+
+        return new ModuleTestingSidecarModels.ChainStepResult(
+                stepIndex,
+                moduleName,
+                success,
+                durationMs,
+                processorLogs,
+                engineLogs,
+                outputSummary,
+                outputDoc
+        );
+    }
+
+    private ModuleTestingSidecarModels.ChainRunResponse buildChainRunResponse(
+            ChainRunState state,
+            boolean success,
+            int failedAtStep,
+            long startedAtMs,
+            int totalSteps
+    ) {
+        long totalDurationMs = Math.max(1L, System.currentTimeMillis() - startedAtMs);
+        boolean chainSuccess = success && state.results.size() == totalSteps && failedAtStep < 0;
+        String message = chainSuccess ? "Chain execution completed"
+                : (failedAtStep >= 0 ? "Chain step " + failedAtStep + " failed" : "Chain execution failed");
+
+        return new ModuleTestingSidecarModels.ChainRunResponse(
+                chainSuccess,
+                failedAtStep,
+                totalDurationMs,
+                message,
+                state.results
+        );
+    }
+
+    private Map<String, Object> buildOutputDocSummary(PipeDoc outputDocument) {
+        Map<String, Object> summary = new HashMap<>();
+        if (outputDocument == null) {
+            return summary;
+        }
+
+        SearchMetadata metadata = outputDocument.getSearchMetadata();
+        summary.put("docId", resolveText(outputDocument.getDocId(), ""));
+        summary.put("hasBody", metadata.hasBody());
+        summary.put("bodyLength", metadata.hasBody() ? metadata.getBody().length() : 0);
+        summary.put("hasTitle", metadata.hasTitle());
+        if (metadata.hasTitle()) {
+            summary.put("title", metadata.getTitle());
+        }
+        summary.put("semanticResultsCount", metadata.getSemanticResultsCount());
+        int totalChunks = metadata.getSemanticResultsList()
+                .stream()
+                .mapToInt(SemanticProcessingResult::getChunksCount)
+                .sum();
+        summary.put("totalChunks", totalChunks);
+        return summary;
+    }
+
+    private List<ProcessingMapping> parseMappings(List<Map<String, Object>> mappings) {
+        return mappings.stream()
+                .map(this::parseSingleMapping)
+                .collect(Collectors.toList());
+    }
+
+    private ProcessingMapping parseSingleMapping(Map<String, Object> mappingObj) {
+        try {
+            String mappingJson = objectMapper.writeValueAsString(mappingObj);
+            ProcessingMapping.Builder builder = ProcessingMapping.newBuilder();
+            JsonFormat.parser().ignoringUnknownFields().merge(mappingJson, builder);
+            return builder.build();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid processing mapping JSON: " + e.getMessage(), e);
+        }
+    }
+
+    private Struct parseStructFromObject(Map<String, Object> value) {
+        try {
+            if (value == null || value.isEmpty()) {
+                return Struct.getDefaultInstance();
+            }
+
+            String json = objectMapper.writeValueAsString(value);
+            Struct.Builder structBuilder = Struct.newBuilder();
+            JsonFormat.parser().ignoringUnknownFields().merge(json, structBuilder);
+            return structBuilder.build();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid JSON config: " + e.getMessage(), e);
+        }
+    }
+
+    private Map<String, Object> toMap(PipeDoc outputDocument) {
+        if (outputDocument == null) {
+            return null;
+        }
+        try {
+            String json = JsonFormat.printer().omittingInsignificantWhitespace().print(outputDocument);
+            return objectMapper.readValue(json, Map.class);
+        } catch (InvalidProtocolBufferException e) {
+            return Map.of("error", "Unable to serialize output_doc: " + e.getMessage());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Unable to parse output_doc JSON: " + e.getMessage(), e);
+        }
+    }
+
+    private static final class ChainRunState {
+        private final String streamId;
+        private PipeDoc currentDoc;
+        private final List<ModuleTestingSidecarModels.ChainStepResult> results;
+        private final boolean includeFullOutput;
+
+        private ChainRunState(String streamId, PipeDoc currentDoc, boolean includeFullOutput) {
+            this.streamId = streamId;
+            this.currentDoc = currentDoc;
+            this.includeFullOutput = includeFullOutput;
+            this.results = new ArrayList<>();
+        }
+    }
+
+    private static final class ChainStepExecutionException extends RuntimeException {
+        private final ChainRunState state;
+        private final int failedStepIndex;
+
+        private ChainStepExecutionException(ChainRunState state, int failedStepIndex, String message) {
+            super(message);
+            this.state = state;
+            this.failedStepIndex = failedStepIndex;
+        }
+
+        private ChainStepExecutionException(ChainRunState state, int failedStepIndex, String message, Throwable cause) {
+            super(message, cause);
+            this.state = state;
+            this.failedStepIndex = failedStepIndex;
+        }
+
+        private ChainRunState state() {
+            return state;
+        }
+
+        private int failedStepIndex() {
+            return failedStepIndex;
+        }
     }
 
     private ServiceMetadata buildServiceMetadata(ServiceContext context) {
